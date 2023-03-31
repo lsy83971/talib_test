@@ -157,7 +157,15 @@ class table_creator:
 def tsq(self, table_name, partition=None, orderby=None):
     tc = table_creator(table_name)
     tc.insert_or_create(self, table_name, partition=partition, orderby=orderby)
-pd.DataFrame.tsq = tsq    
+
+def tsq1(self, table_name, partition=None, orderby=None):
+    tc = table_creator(table_name)
+    for j, i in enumerate(np.split(self, range(0, self.shape[0], 10000))):
+        print(j)
+        tc.insert_or_create(i, table_name, partition=partition, orderby=orderby)
+    
+pd.DataFrame.tsq = tsq
+pd.DataFrame.tsq1 = tsq1
 
 def rsq(sql):
     df = read_sql(sql)

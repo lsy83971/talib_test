@@ -9,42 +9,6 @@ import math
 import re
 
 
-table_name = "rb.detail"
-sql = f"""select
-TradingDay,
-ExchTimeOffsetUs as time,
-Session,
-tick_open as open,
-WAP as close,
-tick_high as high,
-tick_low as low,
-Volume_DiffLen1 as volume,
-Turnover_DiffLen1S as amt,
-MX_exch_detail,
-MX_ask_exch_old,
-MX_ask_exch_new,
-MX_bid_exch_old,
-MX_bid_exch_new,
-MX_moment_exch,
-MX_ask_add,
-MX_ask_cancel,
-MX_bid_add,
-MX_bid_cancel,
-RT20,
-RT40,
-RT60,
-RM1,
-RM3,
-RM5,
-RM10,
-RM15,
-RM20,
-RM30
-from {table_name}
-order by TradingDay, ExchTimeOffsetUs
-"""
-df = rsq(sql)
-
 def append_TXPV(df):
     res = dict()
     for i in ["exch_detail", "ask_exch_old", "bid_exch_old", "moment_exch",
@@ -99,27 +63,15 @@ def append_TXPD(df):
 
         res[f"TXPD_bid_addcancel_pdiff_{j}"] = df[f"TXPV_bid_add_pmean_{j}"] - df[f"TXPV_bid_cancel_pmean_{j}"]
         res[f"TXPD_bid_addcancel_vdiff_{j}"] = df[f"TXPV_bid_add_vmean_{j}"] - df[f"TXPV_bid_cancel_vmean_{j}"]    
-        res[f"TXPD_bid_addcancel_vdiffPorp_{j}"] = res[f"TXPD_bid_addcancel_vdiff_{j}"] / (df[f"TXPV_bid_add_vmean_{j}"] + df[f"TXPV_bid_cancel_vmean_{j}"])
+        res[f"TXPD_bid_addcancel_vdiffPorp_{j}"] = res[f"TXPD_bid_addcancel_vdiff_{j}"] / (df[f"TXPV_bid_add_vmean_{j}"] + \
+                                                                                           df[f"TXPV_bid_cancel_vmean_{j}"])
 
         res[f"TXPD_ask_addcancel_pdiff_{j}"] = df[f"TXPV_ask_add_pmean_{j}"] - df[f"TXPV_ask_cancel_pmean_{j}"]
         res[f"TXPD_ask_addcancel_vdiff_{j}"] = df[f"TXPV_ask_add_vmean_{j}"] - df[f"TXPV_ask_cancel_vmean_{j}"]    
-        res[f"TXPD_ask_addcancel_vdiffPorp_{j}"] = res[f"TXPD_ask_addcancel_vdiff_{j}"] / (df[f"TXPV_ask_add_vmean_{j}"] + df[f"TXPV_ask_cancel_vmean_{j}"])
+        res[f"TXPD_ask_addcancel_vdiffPorp_{j}"] = res[f"TXPD_ask_addcancel_vdiff_{j}"] / (df[f"TXPV_ask_add_vmean_{j}"] + \
+                                                                                           df[f"TXPV_ask_cancel_vmean_{j}"])
     return pd.DataFrame(res)
 
-from timeseries_detail import append_crossday_return
-
-df = cc2(df, append_TXPV)
-df = cc2(df, append_TXPD)
-df = cc2(df, append_crossday_return)
-
-df.to_pickle("avg_price.pkl")
-
-################### check point 1 ######################
-#df = pd.read_pickle("avg_price.pkl")
-
-df = xydata(df, x_symbol="^TX")
-df.cross_corr()
-df.daywise_corr()
 
 def sort_index(tmp_df):
     tmp_index = pd.Series(tmp_df.index, index=tmp_df.index)
@@ -136,31 +88,57 @@ def sort_index(tmp_df):
     del tmp_df["surf"]    
     return tmp_df
 
-with pd.ExcelWriter(f"corr_exch.xlsx", engine='xlsxwriter') as writer:
-    tmp_df = df.corrxy.T
-    tmp_df = sort_index(tmp_df)
-    beautify_excel(tmp_df, "corr", writer)
-    for tmp_df, name in zip([df.dcorrxy_sharp.T, df.dcorrxy_mean.T, df.dcorrxy_std.T],
-                            ["dcorr_shape", "dcorr_mean", "dcorr_std"]):
-        print(name)
-        tmp_df = sort_index(tmp_df)        
-        v = tmp_df.melt()["value"]. abs()
-        maximum = v[v < math.inf]. quantile(0.95)
-        beautify_excel(tmp_df, name, writer,
-                       conditional_format={
-                           'type': '3_color_scale',
-                           "min_type": "num",
-                           "max_type": "num",
-                           "mid_type": "num",                                          
-                           "min_value": f"{-maximum}", 
-                           "mid_value": "0", 
-                           "max_value": f"{maximum}", 
-                           "min_color": "red", 
-                           "mid_color": "white", 
-                           "max_color": "green", 
-                       },
-                       text_format = {
-                           'num_format': '0.00',
-                           "font": "Courier New",
-                           "font_size": 10,                         
-                       })
+from timeseries_detail import append_crossday_return
+
+if __name__ == "__main__":
+    table_name = "rb.detail"
+    sql = f"""select
+    TradingDay,
+    ExchTimeOffsetUs as time,
+    Session,
+    tick_open as open,
+    WAP as close,
+    tick_high as high,
+    tick_low as low,
+    Volume_DiffLen1 as volume,
+    Turnover_DiffLen1S as amt,
+    MX_exch_detail,
+    MX_ask_exch_old,
+    MX_ask_exch_new,
+    MX_bid_exch_old,
+    MX_bid_exch_new,
+    MX_moment_exch,
+    MX_ask_add,
+    MX_ask_cancel,
+    MX_bid_add,
+    MX_bid_cancel,
+    RT20,
+    RT40,
+    RT60,
+    RM1,
+    RM3,
+    RM5,
+    RM10,
+    RM15,
+    RM20,
+    RM30
+    from {table_name}
+    order by TradingDay, ExchTimeOffsetUs
+    """
+    df = rsq(sql)
+    df = cc2(df, append_TXPV)
+    df = cc2(df, append_TXPD)
+    df = cc2(df, append_crossday_return)
+
+    
+    for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
+        print(j)
+        i.tsq("rb.pv")
+
+    ################### check point 1 ######################
+    #df = pd.read_pickle("avg_price.pkl")
+
+    df = xydata(df, x_symbol="^TX")
+    df.cross_corr()
+    df.daywise_corr()
+    df.to_excel("./output/pv.xlsx")

@@ -120,26 +120,6 @@ def erase_kline_tickdata(data, idx, idy, split_type=1):
         erase_period = erase_y.get(i, 60)
         data.loc[data[f"to_end{split_type}"] <= erase_period / 2, i] = None
 
-class xydata(pd.DataFrame):
-    def __init__(self, data, x_symbol="^TX", y_symbol="^ORM|^ORT"):
-        super().__init__(data)
-        self.idx = self.cc(x_symbol)
-        self.idy = self.cc(y_symbol)
-        self.date = data["TradingDay"]. drop_duplicates().sort_values()
-    
-    def erase_kline_tick_data(self, split_type=1):
-        ### type 0 group by date
-        ### type 1 group by (date (morning, afternoon,night))
-        ### type 2 group by (date (day, night))
-        erase_kline_tickdata(self, self.idx, self.idy, split_type=split_type)
-
-    def cross_corr(self):
-        self.corrxy = cross_corr(self[self.idx], self[self.idy])
-
-    def daywise_corr(self, d="TradingDay"):
-        self.dcorrxy_sharp, self.dcorrxy_mean, self.dcorrxy_std, self.dcorrxy_corr = \
-            daywise_corr(self, d, self.idx, self.idy)
-
 def beautify_excel(tmp_df,
                    sheet_name, 
                    writer, conditional_format=None, text_format=None, header_format=None):
@@ -184,10 +164,67 @@ def beautify_excel(tmp_df,
     for i in range(tmp_df.shape[0]):
         worksheet.write(i + 1, 0, str(tmp_df.index[i]), header_format)        
 
-            
-from timeseries_detail import func_info
+class xydata(pd.DataFrame):
+    def __init__(self, data, x_symbol="^TX", y_symbol="^ORM|^ORT"):
+        super().__init__(data)
+        self.idx = self.cc(x_symbol)
+        self.idy = self.cc(y_symbol)
+        self.date = data["TradingDay"]. drop_duplicates().sort_values()
+    
+    def erase_kline_tick_data(self, split_type=1):
+        ### type 0 group by date
+        ### type 1 group by (date (morning, afternoon,night))
+        ### type 2 group by (date (day, night))
+        erase_kline_tickdata(self, self.idx, self.idy, split_type=split_type)
+
+    def cross_corr(self):
+        self.corrxy = cross_corr(self[self.idx], self[self.idy])
+
+    def daywise_corr(self, d="TradingDay"):
+        self.dcorrxy_sharp, self.dcorrxy_mean, self.dcorrxy_std, self.dcorrxy_corr = \
+            daywise_corr(self, d, self.idx, self.idy)
+
+    def to_excel(self, path, append_info=None):
+        with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
+            tmp_df = self.corrxy.T
+            beautify_excel(tmp_df, "corr", writer)
+            for tmp_df, name in zip([self.dcorrxy_sharp.T,
+                                     self.dcorrxy_mean.T,
+                                     self.dcorrxy_std.T],
+                                    ["dcorr_shape", "dcorr_mean", "dcorr_std"]):
+                print(name)
+                v = tmp_df.melt()["value"]. abs()
+                maximum = v[v < math.inf]. quantile(0.95)
+                beautify_excel(tmp_df, name, writer,
+                               conditional_format={
+                                   'type': '3_color_scale',
+                                   "min_type": "num",
+                                   "max_type": "num",
+                                   "mid_type": "num",                                          
+                                   "min_value": f"{-maximum}", 
+                                   "mid_value": "0", 
+                                   "max_value": f"{maximum}", 
+                                   "min_color": "red", 
+                                   "mid_color": "white", 
+                                   "max_color": "green", 
+                               },
+                               text_format = {
+                                   'num_format': '0.00',
+                                   "font": "Courier New",
+                                   "font_size": 10,                         
+                               })
+                
+            if append_info is not None:
+                for i, j in append_info.items():
+                    beautify_excel(j, i, writer,
+                                   conditional_format={},
+                                   text_format = {
+                                       "font": "Courier New",
+                                       "font_size": 10,                         
+                                   })
 
 if __name__ == "__main__":
+    from timeseries_detail import func_info
     data = get_kline("rb.detail")
     data = cc2(data, append_crossday_return)
     Ry = data.cc("RT|RM").ncc("ORT|ORM").tolist()
