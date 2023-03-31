@@ -164,6 +164,24 @@ def beautify_excel(tmp_df,
     for i in range(tmp_df.shape[0]):
         worksheet.write(i + 1, 0, str(tmp_df.index[i]), header_format)        
 
+
+def sort_index(tmp_df):
+    tmp_index = pd.Series(tmp_df.index, index=tmp_df.index)
+    has_param = (~tmp_index.apply(lambda x:re.search("_\d+$", x)).isnull()).values
+    pref = tmp_index.copy()        
+    surf = pd.Series(0, index=tmp_df.index)
+    pref.loc[has_param] = pref.loc[has_param]. apply(lambda x:"_". join(x.split("_")[: -1]))
+    surf.loc[has_param] = tmp_index.loc[has_param]. apply(lambda x:int(x.split("_")[ - 1]))
+    tmp_df = tmp_df.copy()
+    tmp_df["pref"] = pref
+    tmp_df["surf"] = surf
+    tmp_df.sort_values(["pref", "surf"], inplace=True)
+    del tmp_df["pref"]
+    del tmp_df["surf"]    
+    return tmp_df
+
+
+        
 class xydata(pd.DataFrame):
     def __init__(self, data, x_symbol="^TX", y_symbol="^ORM|^ORT"):
         super().__init__(data)
@@ -187,12 +205,14 @@ class xydata(pd.DataFrame):
     def to_excel(self, path, append_info=None):
         with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
             tmp_df = self.corrxy.T
+            tmp_df = sort_index(tmp_df)
             beautify_excel(tmp_df, "corr", writer)
             for tmp_df, name in zip([self.dcorrxy_sharp.T,
                                      self.dcorrxy_mean.T,
                                      self.dcorrxy_std.T],
                                     ["dcorr_shape", "dcorr_mean", "dcorr_std"]):
                 print(name)
+                tmp_df = sort_index(tmp_df)
                 v = tmp_df.melt()["value"]. abs()
                 maximum = v[v < math.inf]. quantile(0.95)
                 beautify_excel(tmp_df, name, writer,

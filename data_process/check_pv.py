@@ -73,21 +73,6 @@ def append_TXPD(df):
     return pd.DataFrame(res)
 
 
-def sort_index(tmp_df):
-    tmp_index = pd.Series(tmp_df.index, index=tmp_df.index)
-    has_param = (~tmp_index.apply(lambda x:re.search("_\d+$", x)).isnull()).values
-    pref = tmp_index.copy()        
-    surf = pd.Series(0, index=tmp_df.index)
-    pref.loc[has_param] = pref.loc[has_param]. apply(lambda x:"_". join(x.split("_")[: -1]))
-    surf.loc[has_param] = tmp_index.loc[has_param]. apply(lambda x:int(x.split("_")[ - 1]))
-    tmp_df = tmp_df.copy()
-    tmp_df["pref"] = pref
-    tmp_df["surf"] = surf
-    tmp_df.sort_values(["pref", "surf"], inplace=True)
-    del tmp_df["pref"]
-    del tmp_df["surf"]    
-    return tmp_df
-
 from timeseries_detail import append_crossday_return
 
 if __name__ == "__main__":
@@ -131,10 +116,11 @@ if __name__ == "__main__":
     df = cc2(df, append_crossday_return)
 
     
-    for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
-        print(j)
-        i.tsq("rb.pv")
-
+    #for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
+    #    print(j)
+    #    i.tsq("rb.pv")
+    df = rsq("select * from rb.pv")
+    df.shape
     ################### check point 1 ######################
     #df = pd.read_pickle("avg_price.pkl")
 
