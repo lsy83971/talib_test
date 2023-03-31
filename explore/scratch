@@ -1,0 +1,78 @@
+class ask_order_record:
+    def __init__(self):
+        self.order=list()
+
+    def from_series(self,s):
+        for i in range(1，6):
+            self.order.append((s[f"AskPrice{i}"],s[f"AskVolume{i}"]))
+        return self
+    
+    def copy(self,r):
+        self.order=copy.deepcopy(r.roder)
+        return self
+    
+    def __sub__(self,r):
+        new_r=ask_order_record()
+        r3=new_r.order
+
+
+        r1=self.order
+        r2=r.order
+        m1=r1[-1][0]
+        m2=r2[-1][0]
+        m3=min(m1,m2)
+
+        i2=0
+        l2=len(r2)
+
+        for i1,(p1,v1) in enumerate(self.order):
+            v1_add=0
+            while True:
+                if i2>=l2:
+                    break
+
+                p2,v2=r2[i2]
+                if p2>m3:
+                    i2+=1
+                    break
+
+                if p2>p1:
+                    break
+
+                if p2<p1:
+                    r3.append((p2,-v2))
+                    i2+=1
+                    continue
+
+                if p2==p1:
+                    v1_add=-v2
+                    i2+=1
+                    break
+            r3.append((p1,v1+v1_add))
+
+        return new_r
+
+
+
+                
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
