@@ -32,21 +32,21 @@ def append_DMIIdx(data):
         print(i)
         res["ADX_" + str(i)] = ADX(data, timeperiod=i)
         res["ATR_" + str(i)] = ATR(data, timeperiod=i)
-        res["PLUS_DM" + str(i)] = PLUS_DM(data, timeperiod=i)
-        res["MINUS_DM" + str(i)] = MINUS_DM(data, timeperiod=i)
-        res["PLUS_DI" + str(i)] = PLUS_DI(data, timeperiod=i)
-        res["MINUS_DI" + str(i)] = MINUS_DI(data, timeperiod=i)
+        res["PLUS_DM_" + str(i)] = PLUS_DM(data, timeperiod=i)
+        res["MINUS_DM_" + str(i)] = MINUS_DM(data, timeperiod=i)
+        res["PLUS_DI_" + str(i)] = PLUS_DI(data, timeperiod=i)
+        res["MINUS_DI_" + str(i)] = MINUS_DI(data, timeperiod=i)
         
     res_df = pd.DataFrame(res)
     res_df.columns = "TXDMI_" + res_df.columns
-    return res
+    return res_df
+
+
 
 if __name__ == "__main__":
     df = pd.read_pickle("./test_data/kline.pkl")
     df = cc2(df, append_DMIIdx)
     df = xydata(df)
-
-
     df.cross_corr()
     df.daywise_corr()
     df.to_excel(f"./output/DMI_tick.xlsx", append_info={"function_info": func_info})
