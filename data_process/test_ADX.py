@@ -67,18 +67,32 @@ def append_POSIdx(data):
 
 if __name__ == "__main__":
     df = pd.read_pickle("./test_data/kline.pkl")
+    df = cc2(df, append_MAIdx)
+    df = xydata(df)
+    df.cross_corr()
+    df.daywise_corr()
+    df.to_excel(f"./output/MA_tick.xlsx", append_info={"function_info": func_info})
+    
+    df = pd.read_pickle("./test_data/kline.pkl")
     df = cc2(df, append_DMIIdx)
     df = xydata(df)
     df.cross_corr()
     df.daywise_corr()
     df.to_excel(f"./output/DMI_tick.xlsx", append_info={"function_info": func_info})
-    
+
+    df = pd.read_pickle("./test_data/kline.pkl")    
     df = cc2(df, append_POSIdx)
     df = xydata(df)
     df.cross_corr()
     df.daywise_corr()
     df.to_excel(f"./output/POS_tick.xlsx", append_info={"function_info": func_info})
 
+    df = pd.read_pickle("./test_data/kline.pkl")    
+    df = cc2(df, append_POSIdx)
+    df = xydata(df)
+    df.cross_corr()
+    df.daywise_corr()
+    df.to_excel(f"./output/POS_tick.xlsx", append_info={"function_info": func_info})
 
 
 

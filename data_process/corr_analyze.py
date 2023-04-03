@@ -165,20 +165,17 @@ def beautify_excel(tmp_df,
         worksheet.write(i + 1, 0, str(tmp_df.index[i]), header_format)        
 
 
+def get_idx_info(x:str):
+    l = list()
+    for i in x.split("_")[:: -1]:
+        try:
+            l.append(float(i))
+        except:
+            break
+    return tuple(l[:: -1])
+
 def sort_index(tmp_df):
-    tmp_index = pd.Series(tmp_df.index, index=tmp_df.index)
-    has_param = (~tmp_index.apply(lambda x:re.search("_\d+$", x)).isnull()).values
-    pref = tmp_index.copy()        
-    surf = pd.Series(0, index=tmp_df.index)
-    pref.loc[has_param] = pref.loc[has_param]. apply(lambda x:"_". join(x.split("_")[: -1]))
-    surf.loc[has_param] = tmp_index.loc[has_param]. apply(lambda x:int(x.split("_")[ - 1]))
-    tmp_df = tmp_df.copy()
-    tmp_df["pref"] = pref
-    tmp_df["surf"] = surf
-    tmp_df.sort_values(["pref", "surf"], inplace=True)
-    del tmp_df["pref"]
-    del tmp_df["surf"]    
-    return tmp_df
+    return tmp_df.loc[pd.Series({i:get_idx_info(i) for i in tmp_df.index}).sort_values().index]
 
 
         
@@ -242,6 +239,7 @@ class xydata(pd.DataFrame):
                                        "font": "Courier New",
                                        "font_size": 10,                         
                                    })
+                    
 
 if __name__ == "__main__":
     from timeseries_detail import func_info
