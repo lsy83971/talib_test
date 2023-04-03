@@ -210,7 +210,7 @@ class xydata(pd.DataFrame):
             for tmp_df, name in zip([self.dcorrxy_sharp.T,
                                      self.dcorrxy_mean.T,
                                      self.dcorrxy_std.T],
-                                    ["dcorr_shape", "dcorr_mean", "dcorr_std"]):
+                                    ["dcorr_sharpe", "dcorr_mean", "dcorr_std"]):
                 print(name)
                 tmp_df = sort_index(tmp_df)
                 v = tmp_df.melt()["value"]. abs()
@@ -274,7 +274,7 @@ if __name__ == "__main__":
             beautify_excel(tmp_df, "corr", writer)
             
             for tmp_df, name in zip([df.dcorrxy_sharp.T, df.dcorrxy_mean.T, df.dcorrxy_std.T],
-                                    ["dcorr_shape", "dcorr_mean", "dcorr_std"]):
+                                    ["dcorr_sharpe", "dcorr_mean", "dcorr_std"]):
                 print(name)
                 v = tmp_df.melt()["value"]. abs()
                 maximum = v[v < math.inf]. quantile(0.95)

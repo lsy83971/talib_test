@@ -27,6 +27,8 @@ Ry = data.cc("RT|RM").ncc("ORT|ORM").tolist()
 data = cc2(data, append_techIdxBasic)
 data = cc2(data, append_MAIdx)
 
+data[data.cc("^OR").tolist() + ["open", "close", "high", "low", "volume"] + ["TradingDay", "time", "Session"]]. to_pickle("./test_data/kline.pkl")
+
 df = xydata(data)
 df.erase_kline_tick_data()
 df.cross_corr()

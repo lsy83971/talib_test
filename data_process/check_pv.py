@@ -116,11 +116,11 @@ if __name__ == "__main__":
     df = cc2(df, append_crossday_return)
 
     
-    #for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
-    #    print(j)
-    #    i.tsq("rb.pv")
-    df = rsq("select * from rb.pv")
-    df.shape
+    # for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
+    #     print(j)
+    #     i.tsq("rb.pv")
+    # df = rsq("select * from rb.pv")
+    
     ################### check point 1 ######################
     #df = pd.read_pickle("avg_price.pkl")
 

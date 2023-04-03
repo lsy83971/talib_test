@@ -105,7 +105,6 @@ def append_crossday_return(df):
     res["from_begin0"] = df["time"] - res["t_begin0"]
     res["to_end0"] = res["t_end0"] - df["time"]
 
-
     for i in [1, 3, 5, 10, 20, 30, 60]:
         res[f"ORT{i}"] = (df["close"]. shift( -i) - df["close"])
 
