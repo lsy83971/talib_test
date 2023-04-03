@@ -41,7 +41,29 @@ def append_DMIIdx(data):
     res_df.columns = "TXDMI_" + res_df.columns
     return res_df
 
+def append_MAIdx(data):
+    res = dict()
+    for i in [10, 30, 60, 120, 180, 240, 360, 480, 600,
+              720, 960, 1200, 1800, 2400, 3600
+              ]:
+        res["SMA_" + str(i)] = SMA(data, timeperiod=i) - data["close"]
+        res["EMA_" + str(i)] = EMA(data, timeperiod=i) - data["close"]
+        
+    res_df = pd.DataFrame(res)
+    res_df.columns = "TXMA_" + res_df.columns
+    return res_df
 
+def append_POSIdx(data):
+    res = dict()
+    for i in [10, 30, 60, 120, 180, 240, 360, 480, 600,
+              720, 960, 1200, 1800, 2400, 3600
+              ]:
+        res["CCI_" + str(i)] = CCI(data, timeperiod=i)
+        res["ARON_" + str(i)] = AROONOSC(data, timeperiod=i)
+        
+    res_df = pd.DataFrame(res)
+    res_df.columns = "TXPOS_" + res_df.columns
+    return res_df
 
 if __name__ == "__main__":
     df = pd.read_pickle("./test_data/kline.pkl")
@@ -50,6 +72,12 @@ if __name__ == "__main__":
     df.cross_corr()
     df.daywise_corr()
     df.to_excel(f"./output/DMI_tick.xlsx", append_info={"function_info": func_info})
+    
+    df = cc2(df, append_POSIdx)
+    df = xydata(df)
+    df.cross_corr()
+    df.daywise_corr()
+    df.to_excel(f"./output/POS_tick.xlsx", append_info={"function_info": func_info})
 
 
 
