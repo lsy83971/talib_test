@@ -167,12 +167,14 @@ def beautify_excel(tmp_df,
 
 def get_idx_info(x:str):
     l = list()
-    for i in x.split("_")[:: -1]:
+    l1 = x.split("_")
+    for j, i in enumerate(l1[:: -1]):
         try:
             l.append(float(i))
         except:
+            break_point = j
             break
-    return tuple(l[:: -1])
+    return tuple(["_". join(l1[: -break_point])] + l[:: -1])
 
 def sort_index(tmp_df):
     return tmp_df.loc[pd.Series({i:get_idx_info(i) for i in tmp_df.index}).sort_values().index]
