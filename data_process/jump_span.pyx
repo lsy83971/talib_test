@@ -64,3 +64,6 @@ def EMA(arr, rate):
     arr.fillna(method="bfill", inplace=True)
     arr.fillna(method="ffill", inplace=True)
     return _EMA(arr.values, rate)
+
+if __name__=="__main__":
+    print("Nice")

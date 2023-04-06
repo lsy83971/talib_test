@@ -89,7 +89,6 @@ def append_MACDIdx(data):
     res_df.columns = "TXMACD_" + res_df.columns
     return res_df
 
-
 ## APPEND MACD
 
 if __name__ == "__main__":

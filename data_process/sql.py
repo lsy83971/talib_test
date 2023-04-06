@@ -1,12 +1,58 @@
-import pandas as pd
 import numpy as np
-import math
-import sys
-from clickhouse_driver import Client
+import pandas as pd
 from pandas.api.types import infer_dtype
+from clickhouse_driver import Client
 import re
 
+#from importlib import reload
+#import remote_sql
+#reload(remote_sql)
+from remote_sql import get_daily_data, append_basic_feature, get_max_symbol
+from append_df import cc2
+import bins
+
 client = Client(host='localhost', database='', user='default', password='irelia17')
+
+# client.execute("""CREATE FUNCTION dict_neg_key as (x)
+# -> mapApply((k, v) -> (-k, v),x);""")
+# client.execute("""CREATE FUNCTION reverse_map as (x)
+# -> mapFromArrays(reverse(mapKeys(x)),reverse(mapValues(x)));""")
+# client.execute("""CREATE FUNCTION clip_map as (x,b1,b2)
+# -> mapFilter((k, v) -> ((k>=b1) and (k<=b2)),x);""")
+# client.execute("""CREATE FUNCTION clipMapLeft as (x,b1)
+# -> mapFilter((k, v) -> (k>=b1),x);""")
+# client.execute("""CREATE FUNCTION clipMapRight as (x,b2)
+# -> mapFilter((k, v) -> (k<=b2),x);""")
+
+# client.execute("""CREATE FUNCTION mapFilValuePos as (x)
+# -> mapFilter((k, v) -> (v>0),x);""")
+# client.execute("""CREATE FUNCTION mapFilValueNeg as (x)
+# -> mapFilter((k, v) -> (v<0),x);""")
+# client.execute("""CREATE FUNCTION mapValueNeg as (x)
+# -> mapApply((k, v) -> (k, -v),x);""")
+
+type_map = {
+    "int64": "Int64",
+    "int32": "Int64",
+    "integer": "Int64",
+    "float64": "Float64",
+    "float32": "Float32",
+    "floating": "Float64",
+    "bool": "Bool",
+    "boolean": "Bool",
+    "string": "String",
+}
+
+def typeinfo(df, add=None):
+    d = pd.Series({i:infer_dtype(df[i]) for i in df.columns}).map(type_map)
+    d = d[d != "mixed"]. to_dict()
+    if add is not None:
+        d.update(add)
+    try:
+        assert (~df.columns.isin(d.keys())).sum() == 0
+    except:
+        print(df.columns[(~df.columns.isin(d.keys()))])
+    return pd.Series(d)
 
 def read_sql(sql):
     data, columns = client.execute(sql, columnar=True, with_column_types=True)
@@ -14,231 +60,290 @@ def read_sql(sql):
     df.colinfo = pd.DataFrame(columns, columns=["name", "typesql"])
     return df
 
-def col_type(table_name):
-    i1, i2 = table_name.split(".")    
-    sql = f"""select name as surname, type as typesql from system.columns
-    where table='{i2}' and database='{i1}';"""
-    typeinfo = read_sql(sql)
-    typeinfo["type"] = typeinfo["typesql"]. apply(
-        lambda x:
-        "integer" if "Int" in x else
-        "floating" if "Float" in x else
-        "boolean" if "Bool" in x else               
-        "string"
-    )
-    assert(typeinfo.loc[typeinfo["surname"]. str.startswith("MX_"), "type"] == "string").all()
-    typeinfo.loc[typeinfo["surname"]. str.startswith("MX_"), "type"] = "mixed"
-    typeinfo["name"] = typeinfo["surname"]
-    typeinfo.loc[typeinfo["type"] == "mixed", "name"] = \
-        typeinfo.loc[typeinfo["type"] == "mixed", "surname"]. str[3:]
-    typeinfo.index = typeinfo["name"]    
-    return typeinfo
+class table_ch:
+    def __init__(self, name):
+        self.name = name
+        self.db, self.table = name.split(".")
 
-class table_creator:
-    type_map = {"floating": "Float64",
-                "integer": 'Int64',
-                "boolean": "Int8",
-                "string": "String",
-                "mixed": "String"
-                }
-    
-    def __init__(self, table_name):
-        self.table_name = table_name
-        self.check_exists()
+    def mater(self, col, expr):
+        _sql = f"""
+        alter table {self.name} add column {col}
+        MATERIALIZED
+        {expr}
+        """
+        client.execute(_sql)
 
-    def check_exists(self):
-        self.db, self.tb = self.table_name.split(".")    
+    @property
+    def has(self):
         df = read_sql(f"""select * from system.tables
-        where database='{self.db}' and name='{self.tb}'""")
+        where database='{self.db}' and name='{self.table}'""")
         if df.shape[0] > 0:
-            self.has = True
+            return True
         else:
-            self.has = False
+            return False
 
-    def check_type(self):
-        self.typeinfo = col_type(self.table_name)
-
-    def check_df(self, df):
-        self.df_typeinfo = pd.DataFrame(
-            [(i, infer_dtype(df[i])) for i in df.columns], columns=["name", "type"])
-        self.df_typeinfo.index = self.df_typeinfo["name"]
-        if not "id" in df.columns:
-            self.df_need_id = True
-            self.df_typeinfo.loc["id"] = ["id", "integer"]
+    def has_date(self, date):
+        if not self.has:
+            return False
+        df = read_sql(f"""select * from {self.name}
+        where date='{date}' limit 1
+        """)
+        if df.shape[0] > 0:
+            return True
         else:
-            self.df_need_id = False
-
-        self.df_typeinfo["surname"] = self.df_typeinfo.apply(
-            lambda x:"MX_" + x["name"] if (not x["name"]. startswith("MX_")) \
-            and (x["type"] == "mixed") else x["name"], 
-            axis=1)
-
-        self.df_typeinfo["typesql"] = self.df_typeinfo["type"].apply(
-            lambda x:self.type_map.get(x, x))
-        self.df_columns_info = ",". join(
-            [f"`{i}` {j}" for _, (i, j) in self.df_typeinfo[["surname", "typesql"]]. iterrows()])
+            return False
         
-        
-    def create(self, df, partition=None, orderby=None):
-        if partition is None:
-            partition_word = ""
-        elif isinstance(partition, list):
-            partition_word = f"partition by ({','.join(partition)})"
-        elif isinstance(partition, str):
-            partition_word = f"partition by {partition}"
-        else:
-            raise
 
-        if orderby is None:
-            orderby_word = "order by id"
-        elif isinstance(orderby, list):
-            orderby_word = f"order by ({','.join(orderby)})"
+    def get_columns(self):
+        sql = f"""select name,type from system.columns
+        where table='{self.table}' and database='{self.db}'"""
+        self.col_type = read_sql(sql)
+
+    def create(self, type_dict, orderby, partitionby=None):
+        col_type_str = ",". join([f"`{i}` {j}" for i, j in type_dict.items()])
+        
+        if isinstance(orderby, list):
+            orderby_str = f"order by ({','.join(orderby)})"
         elif isinstance(orderby, str):
-            orderby_word = f"order by {orderby}"
+            orderby_str = f"order by {orderby}"
         else:
             raise
-            
-            
-        self.check_df(df)
-        self.create_sql = f"""
+
+        if partitionby is None:
+            partitionby_str = ""
+        elif isinstance(partitionby, list):
+            partitionby_str = f"partition by ({','.join(partitionby)})"
+        elif isinstance(partitionby, str):
+            partitionby_str = f"partition by {partitionby}"
+        else:
+            raise
+
+        self.create_sql =f"""
         create TABLE
-        {self.table_name}
-        ({self.df_columns_info})
+        {self.name}
+        ({col_type_str})
         engine=MergeTree
-        {orderby_word}
-        {partition_word}
+        {orderby_str}
+        {partitionby_str}
         """
         client.execute(self.create_sql)
 
+    
     def drop(self):
-        client.execute(f"drop table {table_name}")
+        if self.has:
+            client.execute(f"drop table {self.name}")
 
 
-    def reform(self, df):
-        self.check_df(df)
-        df = df.copy(). reset_index(drop=True)
-        if self.df_need_id:
-            df["id"] = df.index
-            
-        mxinfo = self.df_typeinfo[self.df_typeinfo["type"] == "mixed"]
-        df[mxinfo["name"]] = df[mxinfo["name"]]. fillna("").astype(str)
-        df.r1(mxinfo.set_index("name")["surname"])
-        return df
-
-    def de_reform(self, df):
-        self.check_type()
-        d = self.typeinfo.set_index("surname")["name"]
-        df.r1(d)
-        df.mxcols = df.columns[df.columns. isin(d.values)]. tolist()
-        return df
-
-    def _raw_insert(self, df, table_name):
+    def _raw_insert(self, df):
         data = df.to_dict('records')
         cols = ",". join(df.columns)
-        client.execute(f"INSERT INTO {table_name} ({cols}) VALUES", data, types_check=True)
+        client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
 
-    def insert(self, df, table_name):
-        df = self.reform(df)
-        #self.insert_data = df
-        self._raw_insert(df, table_name)
-
-    def insert_or_create(self, df, table_name, partition=None, orderby=None):
-        if self.has:
-            self.insert(df, table_name)
-            return
-        self.create(df, partition=partition, orderby=orderby)
-        self.insert(df, table_name)
-
-    def read_sql(self, sql):
-        df = read_sql(sql)
-        return self.de_reform(df)
-
-
-def tsq(self, table_name, partition=None, orderby=None):
-    tc = table_creator(table_name)
-    tc.insert_or_create(self, table_name, partition=partition, orderby=orderby)
-
-def tsq1(self, table_name, partition=None, orderby=None):
-    tc = table_creator(table_name)
-    for j, i in enumerate(np.split(self, range(0, self.shape[0], 10000))):
-        print(j)
-        tc.insert_or_create(i, table_name, partition=partition, orderby=orderby)
+class exch_detail(table_ch):
+    def create(self, type_dict, orderby, partitionby=None):
+        super().create(type_dict, orderby, partitionby)
+        self.addcol_pvdict()
+        self.addcol_cumsum()
+        self.addcol_bound()
+        self.addcol_exchdetail()
+        self.addcol_orderdetail()
     
-pd.DataFrame.tsq = tsq
-pd.DataFrame.tsq1 = tsq1
+    def addcol_pvdict(self):
+        self.get_columns()
+        names = self.col_type["name"]
+        for i1 in ["ask", "bid"]:
+            for i2 in ["", "_last"]:
+                colname = "D_" + i1 + i2
+                
+                if colname in names:
+                    motion = "modify"
+                else:
+                    motion = "add"
+                    
+                pairs = list()
+                for i3 in range(1, 6):
+                    pairs.append(f"{i1[0].upper()}P{i3}{i2}")
+                    pairs.append(f"{i1[0].upper()}V{i3}{i2}")
+                pairs = ",". join(pairs)
+                
+                if i1 == "bid":
+                    reverse_str1 = "reverse_map("
+                    reverse_str2 = ")"
+                else:
+                    reverse_str1 = ""
+                    reverse_str2 = ""
+                
+                if i2 == "":
+                    _sql = f"""alter table {self.name} {motion} column
+                    {colname} Map(Int64, Int64) MATERIALIZED
+                    {reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2};
+                    """
+                if i2 == "_last":
+                    _sql = f"""alter table {self.name} {motion} column
+                    {colname} Map(Int64, Int64) MATERIALIZED
+                    case when (BP1_last = -1) then map()
+                    else
+                    {reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2} end;
+                    """
+                client.execute(_sql)
 
-def rsq(sql):
-    df = read_sql(sql)
-    mxcols = pd.Series(df.columns[df.columns.str.startswith("MX_")]).str[3:].tolist()
-    df.mxcols = mxcols
-    df.columns = pd.Series(df.columns).apply(lambda x:x if not x.startswith("MX_") else x[3:])
-    return df
+        for i1 in ["ask", "bid"]:
+            colname = "D_" + i1 + "_diff"
+            table = "D_" + i1
+            table_last = "D_" + i1 + "_last"
+            if i1 == "bid":
+                reverse_str1 = "reverse_map("
+                reverse_str2 = ")"
+            else:
+                reverse_str1 = ""
+                reverse_str2 = ""
+            
+            _sql = f"""alter table {self.name} {motion} column
+            {colname} Map(Int64, Int64) MATERIALIZED
+            {reverse_str1}mapSubtract({table_last},{table}){reverse_str2}            
+            """
+            client.execute(_sql)
 
-def get_kline_tick(table_name):
-    # "exch_detail",
-    # "ask_exch_old",
-    # "ask_exch_new",
-    # "bid_exch_old",
-    # "bid_exch_new",
-    # "moment_exch",
-    # "ask_add",
-    # "ask_cancel",
-    # "bid_add",
-    # "bid_cancel",
+    def addcol_cumsum(self):
+        for col in ["D_ask", "D_ask_last", "D_ask_diff",
+                    "D_bid", "D_bid_last", "D_bid_diff"
+                    ]:
 
-    sql = f"""select
-    TradingDay,
-    ExchTimeOffsetUs as time,
-    Session,
-    tick_open as open,
-    WAP as close,
-    tick_high as high,
-    tick_low as low,
-    Volume_DiffLen1 as volume,
-    Turnover_DiffLen1S as amt,
-    MX_exch_detail,
-    RT20,
-    RT40,
-    RT60,
-    RM1,
-    RM3,
-    RM5,
-    RM10,
-    RM15,
-    RM20,
-    RM30
-    from {table_name}
-    order by TradingDay, ExchTimeOffsetUs
-    """
-    return rsq(sql)
+            if "_diff" in col:
+                v_col = f"arrayMap((x)->max2(0,x),mapValues({col}))"
+            else:
+                v_col = f"mapValues({col})"                
+                
+            _sql = f"""alter table {self.name} add column
+            {col}_cumsum Map(Int64,Int64) MATERIALIZED
+            mapFromArrays(mapKeys({col}),arrayCumSum({v_col}))
+            """
+            client.execute(_sql)
 
-def get_kline_period(table_name, period):
-    sql = f"""
-    select
-    TradingDay,Session,toInt32(floor(ExchTimeOffsetUs/{period})) as period_order,
-    max(tick_high) as high,
-    min(tick_low) as low,
-    any(tick_open) as open,
-    anyLast(WAP) as close,
-    any(ExchTimeOffsetUs) as time,
-    sum(Volume_DiffLen1) as volume,
-    sum(Turnover_DiffLen1S) as amt
-    from {table_name}
-    group by TradingDay,Session,toInt32(floor(ExchTimeOffsetUs/{period}))
-    order by TradingDay,toInt32(floor(ExchTimeOffsetUs/{period}))
-    """
-    df = rsq(sql)
-    return df
 
-def get_kline(table_name="rb.detail", period=None):
-    if period is None:
-        return get_kline_tick(table_name)
+        for col in ["ask", "bid"]:
+            D_col = "D_" + col + "_last"
+            D_a_col = "D_" + col + "_last_acumsum"
+            
+            _sql = f"""alter table {self.name} add column
+            {D_a_col} Map(Int64,Int64) MATERIALIZED
+            mapFromArrays(
+            mapKeys({D_col}),
+            arrayCumSum(
+             arrayMap((x,y)->(x*y),mapKeys({D_col}),mapValues({D_col}))
+            )
+            )
+            """
+            client.execute(_sql)
+
+    def addcol_bound(self):
+        ask_start = "cast(min2(max2(AP1_last, AP1),min2(AP5_last,AP5)) as Int64)"
+        ask_end = f"cast(min2(ask_start+3,min2(AP5_last,AP5)+1) as Int64)"
+        _sql = f"""
+        alter table {self.name} add column ask_start
+        Int64 MATERIALIZED {ask_start}
+        """
+        client.execute(_sql)
+        _sql = f"""
+        alter table {self.name} add column ask_bound
+        Int64 MATERIALIZED
+        ask_start+arrayCount(
+        (x) -> ((D_ask_cumsum[x]<=vol/2+50) and (D_ask_last_cumsum[x]<=vol)),
+        range(ask_start,{ask_end})
+        
+        )
+        """
+        client.execute(_sql)
+
+        bid_start = "cast(max2(min2(BP1_last, BP1),max2(BP5_last,BP5)) as Int64)"
+        bid_end = f"cast(max2(bid_start-3,max2(BP5_last,BP5)-1) as Int64)"
+        _sql = f"""
+        alter table {self.name} add column bid_start
+        Int64 MATERIALIZED {bid_start}
+        """
+        client.execute(_sql)
+        _sql = f"""
+        alter table {self.name} add column bid_bound
+        Int64 MATERIALIZED
+        bid_start-arrayCount(
+        (x) -> ((D_bid_cumsum[x]<=vol/2+50) and (D_bid_last_cumsum[x]<=vol)),
+        range(bid_start,{bid_end},-1)
+        )
+        """
+        client.execute(_sql)
+
+    def addcol_exchdetail(self):
+        _sql = f"""
+        alter table {self.name} add column D_exch
+        Map(Int64,Int64) MATERIALIZED
+        lsy_exch_detail(
+        vol,
+        amt,
+        D_ask_last,
+        D_bid_last,
+        D_ask_diff,
+        D_bid_diff,
+        D_ask_cumsum,
+        D_ask_last_cumsum,
+        D_ask_diff_cumsum,
+        D_bid_cumsum,
+        D_bid_last_cumsum,
+        D_bid_diff_cumsum,
+        D_ask_last_acumsum,
+        D_bid_last_acumsum,
+        ask_bound,
+        bid_bound)
+        """
+        client.execute(_sql)
+
+    def addcol_orderdetail(self):
+        self.mater("D_ask_change Map(Int64,Int64)",
+                   "clipMapRight(mapSubtract(mapAdd(D_exch,D_ask),D_ask_last),min2(AP5,AP5_last))")
+
+        self.mater("D_bid_change Map(Int64,Int64)", 
+                   "clipMapLeft(mapSubtract(mapAdd(D_exch,D_bid),D_bid_last),max2(BP5,BP5_last))")
+        
+        self.mater("D_ask_add Map(Int64,Int64)", "mapFilValuePos(D_ask_change)")
+        self.mater("D_ask_cancel Map(Int64,Int64)", "mapValueNeg(mapFilValueNeg(D_ask_change))")
+        self.mater("D_ask_exch_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,D_ask_last))")
+        self.mater("D_ask_exch_old Map(Int64,Int64)", "mapSubtract(D_exch,D_ask_exch_new)")
+
+        self.mater("D_bid_add Map(Int64,Int64)", "mapFilValuePos(D_bid_change)")
+        self.mater("D_bid_cancel Map(Int64,Int64)", "mapValueNeg(mapFilValueNeg(D_bid_change))")
+        self.mater("D_bid_exch_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,D_bid_last))")
+        self.mater("D_bid_exch_old Map(Int64,Int64)", "mapSubtract(D_exch,D_bid_exch_new)")
+
+        self.mater("D_exch_moment Map(Int64,Int64)", "mapSubtract(D_ask_exch_new,D_bid_exch_old)")
+
+def insert_tick_table(d1, d2, code, tb_name):
+    if not tick_table.has:
+        need_create = True
     else:
-        return get_kline_period(table_name, period)
+        need_create = False
+
+    for i in pd.date_range(d1, d2):
+        date = i.strftime("%Y-%m-%d")
+        if tick_table.has_date(date):
+            continue
+
+        symbol = get_max_symbol(date, code)
+        if symbol == "":
+            continue
+
+        df = get_daily_data(date, symbol)
+        df = cc2(df, append_basic_feature)
+        if df.shape[0] < 1000:
+            continue
+
+        if need_create:
+            tick_table.create(typeinfo(df), orderby=["date", "time"], partitionby="date")
+            need_create = False
+        print(f"insert symbol: {symbol}, date: {date}")
+        tick_table._raw_insert(df)
 
 if __name__ == "__main__":
-    table_name = "tickdata.test2"
-    tc = table_creator(table_name)
-    tc.drop()
-
-
+    d1 = "20221201"
+    d2 = "20230404"
+    code = "rb"
+    tb_name = "rb.tickdata"
+    insert_tick_table(d1, d2, code, tb_name)
