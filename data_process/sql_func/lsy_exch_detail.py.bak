@@ -1,8 +1,7 @@
 #!/usr/bin/python3
-
-## copy file to /var/lib/clickhouse/user_scripts/lsy_exch_detail.py
 import sys
 import json
+import math
 
 def calc_exch_detail(x):
     res = dict()
@@ -32,10 +31,13 @@ def calc_exch_detail(x):
         return {"exch_detail":dict()}
 
     VWAP = amt / vol
-    if VWAP >= pb2:
-        return {"exch_detail":{pb2: vol}}
-    if VWAP <= pb1:
-        return {"exch_detail":{pb1: vol}}
+    
+    pb2 = max(math.ceil(VWAP), pb2)
+    pb1 = min(math.floor(VWAP), pb1)
+    # if VWAP >= pb2:
+    #     return {"exch_detail":{pb2: vol}}
+    # if VWAP <= pb1:
+    #     return {"exch_detail":{pb1: vol}}
 
     obj_score = dict()
     obj_res = dict()
@@ -77,7 +79,14 @@ def calc_exch_detail(x):
                 prz1 = min(v1, max(x["D_ask_diff"].get(prc1, 0), 0) + max(x["D_bid_diff"].get(prc1, 0), 0))
                 prz2 = min(v2, max(x["D_ask_diff"].get(prc2, 0), 0) + max(x["D_bid_diff"].get(prc2, 0), 0))
                 prz = prz1 + prz2
-                score = prz - pun_out
+
+                ## punish of cancel order on border price 
+
+                pun1 = max(x["D_ask_last"]. get(prc1, 0) - v1, 0)
+                pun2 = max(x["D_bid_last"]. get(prc2, 0) - v2, 0)                
+                pun_in = pun1 + pun2
+                
+                score = prz - pun_out - pun_in
                 obj_res[(prc1, prc2)] = {prc1: v1, prc2: v2}
                 obj_score[(prc1, prc2)] = (score, -1)
                 continue
@@ -102,7 +111,13 @@ def calc_exch_detail(x):
             prz1 = min(v1, max(x["D_ask_diff"].get(prc1, 0), 0) + max(x["D_bid_diff"].get(prc1, 0), 0))
             prz2 = min(v2, max(x["D_ask_diff"].get(prc2, 0), 0) + max(x["D_bid_diff"].get(prc2, 0), 0))
             prz = prz1 + prz2 + prz_mid
-            score = prz - pun_out
+
+            ## punish of cancel order on border price             
+            pun1 = max(x["D_ask_last"]. get(prc1, 0) - v1, 0)
+            pun2 = max(x["D_bid_last"]. get(prc2, 0) - v2, 0)
+            pun_in = pun1 + pun2
+            
+            score = prz - pun_out - pun_in
 
             _ex_detail = {i:x["D_ask_last"]. get(i, 0) + x["D_bid_last"]. get(i, 0) \
                         for i in range(prc1 + 1, prc2)}
