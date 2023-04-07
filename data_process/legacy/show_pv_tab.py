@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
 import math
-
+#from importlib import reload
+#import common.dict_operator
+#reload(common.dict_operator)
+from common.dict_operator import DPop
 ## 2.show pv-dict
 
 def show_price_tab(x, Lag=""):

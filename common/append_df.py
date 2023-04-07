@@ -1,5 +1,4 @@
 import pandas as pd
-
 def cc1(df, f):
     df1 = pd.DataFrame(df.apply(f, axis=1).tolist())
     df = df.loc[:, (~df.columns.isin(df1.columns))]

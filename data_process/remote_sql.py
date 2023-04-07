@@ -5,6 +5,8 @@ from collections import defaultdict
 import pandas as pd
 import numpy as np
 import math
+from common.append_df import cc2
+from bin_tools import bins
 
 FLOAT_TIME_COL = 'ExchTimeOffsetUs'
 
@@ -35,7 +37,7 @@ def read_sql(sql):
 #         stream=True)
 
 
-def get_daily_data(date, symbol):
+def get_daily_raw_data(date, symbol):
     query = """
     select
     TradingDay as date
@@ -69,7 +71,40 @@ def get_daily_data(date, symbol):
     order by NumericExchTime, MdID
     format CSVWithNames
     """ % (date, symbol)
-    return read_sql(query)
+    df = read_sql(query)
+    
+    if "time" in df.columns:
+        time = df["time"]
+        session = pd.Series("", index=df.index)
+        for i, (j1, j2) in trading_time_interval_dict.items():
+            cond = (time >= j1) & (time <= j2)
+            session.loc[cond] = i
+        df["Session"] = session
+    return df
+
+# df = populate_tick(df)
+# df = get_daily_raw_data("2022-12-19", "rb2305")
+
+def populate_tick(df):
+    if "time" in df.columns:
+        df1 = df[["Session", "time"]]
+        first = df1.drop_duplicates("Session").set_index("Session")["time"]
+        last = df1.drop_duplicates("Session", keep="last").set_index("Session")["time"]
+
+        range_list = list()
+        for i in ["day0", "day1", "day2", "day3"]:
+            if i not in first:
+                continue
+            range_list.append(np.arange(first[i], last[i] + 0.5, 0.5))
+        range_idx = np.concatenate(range_list)
+
+        df.set_index("time", inplace=True)
+        df = df.reindex(range_idx)
+        df.reset_index(inplace=True)
+        df["FLAG_ffill_tick"] = df["Session"]. isnull().astype(int)
+        df.ffill(inplace=True)
+    return df
+    
 
 def get_symbol2volume_multiple_dict(date):
     """
@@ -124,49 +159,54 @@ trading_time_interval_dict = {
     'day3': (3600 * 13 + 60 * 30, 3600 * 15)
 }
 
-
-
 def append_basic_feature(df):
     res = dict()
-
-    # 1. mult
+    # 1, populate 
+    # 2. mult
     date = df["date"]. iloc[0]
     symbol = df["Symbol"]. iloc[0]    
     v_mult = get_symbol2volume_multiple_dict(date)[symbol]
     res["vMult"] = pd.Series(v_mult, index=df.index)
-
-    # 2. session
-    time = df["time"]
-    session = pd.Series("", index=df.index)
-    for i, (j1, j2) in trading_time_interval_dict.items():
-        cond = (time >= j1) & (time <= j2)
-        session.loc[cond] = i
-    res["Session"] = session
 
     # 3. vol amt
     res["vol"] = df["vol_sum"]. diff()
     res["vol"]. iloc[0] = df["vol_sum"]. iloc[0]
     res["amt"] = df["amt_sum"]. diff() / v_mult
     res["amt"]. iloc[0] = df["amt_sum"]. iloc[0] / v_mult
-    res["VWAP"] = res["amt"] / res["vol"]
+    res["VWAP"] = (res["amt"] / res["vol"]).ffill()
+    res["WAP"] = (((df["AP1"] * df["BV1"]) + (df["BP1"] * df["AV1"])) / (df["AV1"] + df["BV1"])).ffill()
 
     # 4. lag1
     # TODO may be delete day2
-    init_idx = res["Session"]. drop_duplicates().index
+    init_idx = df["Session"]. drop_duplicates().index
     for i in df.columns[df.columns.str.contains("AP|BP")]:
         res[i + "_last"] = df[i]. shift(1)
         res[i + "_last"]. loc[init_idx] = df[i]. loc[init_idx]
-        res[i + "_last"] = res[i + "_last"]. astype(int)
-
+        
     for i in df.columns[df.columns.str.contains("AV|BV")]:
         res[i + "_last"] = df[i]. shift(1)
         res[i + "_last"]. loc[init_idx] = 0
-        res[i + "_last"] = res[i + "_last"]. astype(int)
-        
     return res
 
+def get_daily_data(date, symbol):
+    df = populate_tick(get_daily_raw_data(date, symbol))
+    df = cc2(df, append_basic_feature)
+    for i in df.cc("^AP|^BP|^AV|^BV"):
+        df[i] = df[i]. astype(int)
+    return df
+
+def get_daily_max(date, code):
+    symbol = get_max_symbol(date, code)
+    if symbol == "":
+        return None, ""
+    df = get_daily_data(date, symbol)
+    return df, symbol
 
 if __name__ == "__main__":
-    df = get_daily_data(date, symbol)
-    df = cc2(df, append_basic_feature)
-    df["test"] = True
+    date = "2022-12-19"
+    symbol = "rb2305"
+    df0 = get_daily_raw_data("2022-12-19", "rb2305")
+    df1 = get_daily_data("2022-12-19", "rb2305")
+    df2 = get_daily_max("2022-12-19", "rb")[0]
+
+

@@ -17,7 +17,6 @@
         <command>python3 /var/lib/clickhouse/user_scripts/custom_dotProduct.py</command>
     </function>
 
-
     <function>
         <type>executable</type>
         <name>lsy_exch_detail</name>
@@ -44,5 +43,6 @@
         <execute_direct>0</execute_direct>
         <command>python3 /var/lib/clickhouse/user_scripts/lsy_exch_detail.py</command>
     </function>
+    
 </functions>
 

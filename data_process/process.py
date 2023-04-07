@@ -1,58 +1,31 @@
-import pandas as pd
-import numpy as np
-import math
-from append_df import cc1, cc2
-import sys
-sys.path.append("/home/lishiyu/Project/bin_tools")
-from bins import binning, bins_simple_mean
-from pvdict_utils import *
-from exch_detail import append_feature_exch_detail
-from tick_detail import append_tick_detail
-from get_feature_data import get_feature_data
-from timeseries_detail import *
-from clickhouse_driver import Client
-from pandas.api.types import infer_dtype
-import sql
-import re
-import gc
-from sql import read_sql
+from local_sql import exch_detail, read_sql
+from kline import table_kline_period, table_kline_tick
 
-#sql.client.execute("create database rb")
-d1 = "20221201"
-d2 = "20230324"
-code = "rb"
-tb_name = "rb.detail"
+def load_data(code, d1, d2):
+    print("STEP1: Insert tickdata")
+    tick_table = exch_detail(code)
+    tick_table.insert_dates(d1, d2)
+    
+    print("STEP2: Insert kline")
+    print("create table: kline_tick")
+    tk0 = table_kline_tick(code)
+    tk0.insert_data()
+    tkp_dict = dict()
+    for i in [5, 10, 15, 20, 30, 60, 90, 150, 300]:
+        print(f"create table: kline_{i}")
+        tkp_dict[i] = table_kline_period(code, i)
+        tkp_dict[i].insert_data()
 
-rb_data = get_feature_data(d1, d2, code)
+if __name__ == "__main__":
+    d1 = "20221105"
+    d2 = "20230404"
+    code = "rb"
+    load_data(code, d1, d2)
 
-for i in sorted(rb_data):
-    i1 = rb_data[i]
-    for j1, j in enumerate(["night", "day1", "day2", "day3"]):
-        print((i, j1))        
-        try:
-            check_exists = read_sql(f"""select * from {tb_name}
-             where TradingDay='{i[0]}'
-            and Session='{j}' limit 1""")
-            if check_exists.shape[0] > 0:
-                print("Exists")
-                continue
-        except:
-            pass
+    d1 = "20221105"
+    d2 = "20230404"
+    code = "ru"
+    load_data(code, d1, d2)
 
-        df = i1[j]
-        if df.shape[0] <= 100:
-            continue
-        
-        if "level_0" in df:
-            del df["level_0"]
-        df = df[df.ncc("RT|RM")]
-        df = df.reset_index(drop=True)
-        df = append_feature_exch_detail(df)
-        df = append_tick_detail(df)
-        df = cc2(df, append_kline_ret_idx)
-        df.tsq(tb_name, partition="TradingDay",
-               orderby=["TradingDay", "ExchTimeOffsetUs"])
-        gc.collect()
-        
-
-
+    #read_sql("select RT5 from rb.kline_5"). abs().mean()
+    #read_sql("select RT10 from rb.kline_5"). abs().mean()

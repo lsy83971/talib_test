@@ -3,13 +3,13 @@ import pandas as pd
 from pandas.api.types import infer_dtype
 from clickhouse_driver import Client
 import re
-
 #from importlib import reload
 #import remote_sql
 #reload(remote_sql)
-from remote_sql import get_daily_data, append_basic_feature, get_max_symbol
-from append_df import cc2
-import bins
+from remote_sql import get_daily_max
+from common.append_df import cc2
+from bin_tools import bins
+import sys
 
 client = Client(host='localhost', database='', user='default', password='irelia17')
 
@@ -60,6 +60,31 @@ def read_sql(sql):
     df.colinfo = pd.DataFrame(columns, columns=["name", "typesql"])
     return df
 
+
+def has_db(db):
+    return (read_sql(f"select * from system.databases where name='{db}'").shape[0] > 0)
+
+def has_table(name):
+    db, table = name.split(".")
+    df = read_sql(f"""select * from system.tables
+    where database='{db}' and name='{table}'""")
+    if df.shape[0] > 0:
+        return True
+    else:
+        return False
+
+def has_date(name, date):
+    if not has_table(name):
+        return False
+    df = read_sql(f"""select * from {name}
+    where date='{date}' limit 1
+    """)
+    if df.shape[0] > 0:
+        return True
+    else:
+        return False
+    
+
 class table_ch:
     def __init__(self, name):
         self.name = name
@@ -71,33 +96,29 @@ class table_ch:
         MATERIALIZED
         {expr}
         """
+        print("MATERIALIZED table:")
+        print(_sql)
         client.execute(_sql)
 
     @property
     def has(self):
-        df = read_sql(f"""select * from system.tables
-        where database='{self.db}' and name='{self.table}'""")
-        if df.shape[0] > 0:
-            return True
-        else:
-            return False
+        return has_table(self.name)
 
     def has_date(self, date):
-        if not self.has:
-            return False
-        df = read_sql(f"""select * from {self.name}
-        where date='{date}' limit 1
-        """)
-        if df.shape[0] > 0:
-            return True
-        else:
-            return False
+        return has_date(self.name, date)
         
+    @property
+    def has_db(self):
+        return has_db(self.db)
 
     def get_columns(self):
         sql = f"""select name,type from system.columns
         where table='{self.table}' and database='{self.db}'"""
         self.col_type = read_sql(sql)
+
+    def create_db(self):
+        if not self.has_db:
+            client.execute(f"""create database {self.db}""")
 
     def create(self, type_dict, orderby, partitionby=None):
         col_type_str = ",". join([f"`{i}` {j}" for i, j in type_dict.items()])
@@ -118,6 +139,8 @@ class table_ch:
         else:
             raise
 
+        self.create_db()
+
         self.create_sql =f"""
         create TABLE
         {self.name}
@@ -128,11 +151,9 @@ class table_ch:
         """
         client.execute(self.create_sql)
 
-    
     def drop(self):
         if self.has:
             client.execute(f"drop table {self.name}")
-
 
     def _raw_insert(self, df):
         data = df.to_dict('records')
@@ -140,6 +161,13 @@ class table_ch:
         client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
 
 class exch_detail(table_ch):
+    
+    def __init__(self, code):
+        self.table = "tickdata"
+        self.db = code
+        self.code = code
+        self.name = code + "." + self.table
+    
     def create(self, type_dict, orderby, partitionby=None):
         super().create(type_dict, orderby, partitionby)
         self.addcol_pvdict()
@@ -238,7 +266,7 @@ class exch_detail(table_ch):
 
     def addcol_bound(self):
         ask_start = "cast(min2(max2(AP1_last, AP1),min2(AP5_last,AP5)) as Int64)"
-        ask_end = f"cast(min2(ask_start+3,min2(AP5_last,AP5)+1) as Int64)"
+        ask_end = f"cast(min2(ask_start+4,min2(AP5_last,AP5)+1) as Int64)"
         _sql = f"""
         alter table {self.name} add column ask_start
         Int64 MATERIALIZED {ask_start}
@@ -248,7 +276,9 @@ class exch_detail(table_ch):
         alter table {self.name} add column ask_bound
         Int64 MATERIALIZED
         ask_start+arrayCount(
-        (x) -> ((D_ask_cumsum[x]<=vol/2+50) and (D_ask_last_cumsum[x]<=vol)),
+        -- (x) -> ((D_ask_cumsum[x]<=vol/2+50)
+        -- and (D_ask_last_cumsum[x]<=vol)), MODIFIED
+        (x) -> (D_ask_last_cumsum[x]<=vol*2+150),
         range(ask_start,{ask_end})
         
         )
@@ -256,7 +286,7 @@ class exch_detail(table_ch):
         client.execute(_sql)
 
         bid_start = "cast(max2(min2(BP1_last, BP1),max2(BP5_last,BP5)) as Int64)"
-        bid_end = f"cast(max2(bid_start-3,max2(BP5_last,BP5)-1) as Int64)"
+        bid_end = f"cast(max2(bid_start-4,max2(BP5_last,BP5)-1) as Int64)"
         _sql = f"""
         alter table {self.name} add column bid_start
         Int64 MATERIALIZED {bid_start}
@@ -266,7 +296,9 @@ class exch_detail(table_ch):
         alter table {self.name} add column bid_bound
         Int64 MATERIALIZED
         bid_start-arrayCount(
-        (x) -> ((D_bid_cumsum[x]<=vol/2+50) and (D_bid_last_cumsum[x]<=vol)),
+        -- (x) -> ((D_bid_cumsum[x]<=vol/2+50)
+        -- and (D_bid_last_cumsum[x]<=vol)), MODIFIED
+        (x) -> (D_bid_last_cumsum[x]<=vol*2+150),
         range(bid_start,{bid_end},-1)
         )
         """
@@ -315,35 +347,48 @@ class exch_detail(table_ch):
 
         self.mater("D_exch_moment Map(Int64,Int64)", "mapSubtract(D_ask_exch_new,D_bid_exch_old)")
 
-def insert_tick_table(d1, d2, code, tb_name):
-    if not tick_table.has:
-        need_create = True
-    else:
-        need_create = False
-
-    for i in pd.date_range(d1, d2):
-        date = i.strftime("%Y-%m-%d")
-        if tick_table.has_date(date):
-            continue
-
-        symbol = get_max_symbol(date, code)
-        if symbol == "":
-            continue
-
-        df = get_daily_data(date, symbol)
-        df = cc2(df, append_basic_feature)
-        if df.shape[0] < 1000:
-            continue
-
-        if need_create:
-            tick_table.create(typeinfo(df), orderby=["date", "time"], partitionby="date")
+    def insert_dates(self, d1, d2):
+        if not self.has:
+            need_create = True
+        else:
             need_create = False
-        print(f"insert symbol: {symbol}, date: {date}")
-        tick_table._raw_insert(df)
+            
+        for i in pd.date_range(d1, d2):
+            date = i.strftime("%Y-%m-%d")
+            if self.has_date(date):
+                continue
+
+            df, symbol = get_daily_max(date, self.code)
+            if df is None:
+                continue
+
+            if df.shape[0] < 1000:
+                continue
+
+
+
+            if need_create:
+                self.create(typeinfo(df), orderby=["date", "time"], partitionby="date")
+                need_create = False
+            print(f"insert symbol: {symbol}, date: {date}, lines: {df.shape[0]}")
+            self._raw_insert(df)
 
 if __name__ == "__main__":
-    d1 = "20221201"
+    d1 = "20221105"
     d2 = "20230404"
-    code = "rb"
-    tb_name = "rb.tickdata"
-    insert_tick_table(d1, d2, code, tb_name)
+    tick_table = exch_detail("rb")
+    tick_table.insert_dates(d1, d2)
+
+    tick_table = exch_detail("ru")
+    tick_table.insert_dates(d1, d2)
+    
+    #d1 = "20221105"
+    #d2 = "20221110"
+    
+    tick_table = exch_detail("rb")
+    #tick_table.drop()
+    #tick_table.drop()
+    tick_table.insert_dates(d1, d2)
+    
+    #read_sql("select D_exch,VWAP,WAP from rb.tickdata limit 100")
+    

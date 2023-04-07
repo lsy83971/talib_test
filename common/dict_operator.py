@@ -1,22 +1,27 @@
-import pandas as pd
-import numpy as np
-
 ## 1. basic operators of pv-dict
-def sum_amt(x):
+import pandas as pd
+def DPop(x):
+    if len(x) == 0:
+        return dict()
+    i1 = min(x.keys())
+    i2 = max(x.keys())
+    return {i: x.get(i, 0) for i in range(i1, i2 + 1)}
+
+def DSumMo(x):
     a = 0
     for i, j in x.items():
         a+=i * j
     return a
 
-def sum_volume(x):
+def DSumV(x):
     return sum(x.values())
 
-def inverse_dict(d):
+def DNegV(d):
     if pd.isnull(d):
         return dict()
     return {i: -j for i, j in d.items()}
 
-def add_dict(d1, d2):
+def DAdd(d1, d2):
     if pd.isnull(d1):
         d1 = dict()
     if pd.isnull(d2):
@@ -29,10 +34,10 @@ def add_dict(d1, d2):
             d3[i] = j
     return d3
 
-def sub_dict(d1, d2):
-    return add_dict(d1, inverse_dict(d2))
+def DSub(d1, d2):
+    return DAdd(d1, DNegV(d2))
 
-def cut_dict(d, l1=None, l2=None):
+def Dcut(d, l1=None, l2=None):
     if pd.isnull(d):
         return dict()
     d1 = d.copy()
@@ -46,16 +51,16 @@ def cut_dict(d, l1=None, l2=None):
                 del d1[i]
     return d1
 
-def pos_dict(d):
+def DFPos(d):
     return {i: j for i, j in d.items() if j > 0}
 
-def neg_dict(d):
+def DFNeg(d):
     return {i: j for i, j in d.items() if j < 0}
 
-def nozero_dict(d):
+def DFNozero(d):
     return {i: j for i, j in d.items() if j != 0}
 
-def min_dict(d1, d2):
+def DMin(d1, d2):
     if pd.isnull(d1):
         d1 = dict()
     if pd.isnull(d2):
@@ -67,5 +72,6 @@ def min_dict(d1, d2):
         else:
             d3[i] = 0
     return d3
+
 
 
