@@ -1,0 +1,140 @@
+#!/usr/bin/python3
+import sys
+import json
+import math
+
+def calc_exch_detail(x):
+    res = dict()
+    vol = int(x["vol"])
+    amt = int(x["amt"])
+    pb2 = int(x["ask_bound"])
+    pb1 = int(x["bid_bound"])
+    
+    x["D_ask_last"] = {int(i): int(j) for i, j in x["D_ask_last"]. items()}
+    x["D_bid_last"] = {int(i): int(j) for i, j in x["D_bid_last"]. items()}
+    
+    x["D_ask_diff"] = {int(i):int(j) for i, j in x["D_ask_diff"]. items()}
+    x["D_bid_diff"] = {int(i):int(j) for i, j in x["D_bid_diff"]. items()}
+    x["D_ask_cumsum"] = {int(i):int(j) for i, j in x["D_ask_cumsum"]. items()}
+    x["D_ask_last_cumsum"] = {int(i):int(j) for i, j in x["D_ask_last_cumsum"]. items()}
+    x["D_ask_diff_cumsum"] = {int(i):int(j) for i, j in x["D_ask_diff_cumsum"]. items()}
+    x["D_bid_cumsum"] = {int(i):int(j) for i, j in x["D_bid_cumsum"]. items()}
+    x["D_bid_last_cumsum"] = {int(i):int(j) for i, j in x["D_bid_last_cumsum"]. items()}
+    x["D_bid_diff_cumsum"] = {int(i):int(j) for i, j in x["D_bid_diff_cumsum"]. items()}
+    x["D_ask_last_acumsum"] = {int(i):int(j) for i, j in x["D_ask_last_acumsum"]. items()}
+    x["D_bid_last_acumsum"] = {int(i):int(j) for i, j in x["D_bid_last_acumsum"]. items()}
+
+    ask_prz_cumsum = x["D_ask_diff_cumsum"]
+    bid_prz_cumsum = x["D_bid_diff_cumsum"]
+    
+    if vol == 0:
+        return {"exch_detail":dict()}
+
+    VWAP = amt / vol
+    
+    pb2 = max(math.ceil(VWAP), pb2)
+    pb1 = min(math.floor(VWAP), pb1)
+    # if VWAP >= pb2:
+    #     return {"exch_detail":{pb2: vol}}
+    # if VWAP <= pb1:
+    #     return {"exch_detail":{pb1: vol}}
+
+    obj_score = dict()
+    obj_res = dict()
+    obj_detail = dict()
+
+    for prc1 in range(pb1, pb2 + 1):
+        if prc1 > VWAP:
+            break
+
+        for prc2 in range(pb2, prc1 - 1, -1):
+            if prc2 < VWAP:
+                continue
+            
+            pun1a = x["D_ask_last_cumsum"].get(prc1 - 1, 0)
+            pun1b = x["D_bid_last_cumsum"].get(prc2 + 1, 0)
+            pun2a = x["D_ask_cumsum"].get(prc2 - 1, 0)
+            pun2b = x["D_bid_cumsum"].get(prc1 + 1, 0)
+            pun_out = pun1a + pun1b + pun2a + pun2b
+
+            v = vol
+            a = amt
+
+            if prc1 == prc2:
+                if a != v * prc1:
+                    continue
+                prz = max(x["D_ask_diff"].get(prc1, 0), 0) + max(x["D_bid_diff"].get(prc1, 0), 0)
+                prz = min(prz, v)
+                score = prz - pun_out
+                obj_res[(prc1, prc2)] = {prc1: v}
+                obj_score[(prc1, prc2)] = (score, 0)
+                continue
+
+            if (a >= prc2 * v) or (a <= prc1 * v):
+                continue
+            
+            if prc1 == prc2 - 1:
+                v2 = (a - v * prc1)
+                v1 = v - v2
+                prz1 = min(v1, max(x["D_ask_diff"].get(prc1, 0), 0) + max(x["D_bid_diff"].get(prc1, 0), 0))
+                prz2 = min(v2, max(x["D_ask_diff"].get(prc2, 0), 0) + max(x["D_bid_diff"].get(prc2, 0), 0))
+                prz = prz1 + prz2
+
+                ## punish of cancel order on border price 
+
+                pun1 = max(x["D_ask_last"]. get(prc1, 0) - v1, 0)
+                pun2 = max(x["D_bid_last"]. get(prc2, 0) - v2, 0)                
+                pun_in = pun1 + pun2
+                
+                score = prz - pun_out - pun_in
+                obj_res[(prc1, prc2)] = {prc1: v1, prc2: v2}
+                obj_score[(prc1, prc2)] = (score, -1)
+                continue
+
+            a_mid = x["D_bid_last_acumsum"].get(prc1 + 1, 0) - x["D_bid_last_acumsum"].get(prc2, 0) + \
+                    x["D_ask_last_acumsum"]. get(prc2 - 1, 0) - x["D_ask_last_acumsum"].get(prc1, 0)
+            v_mid = x["D_bid_last_cumsum"].get(prc1 + 1, 0) - x["D_bid_last_cumsum"].get(prc2, 0) + \
+                    x["D_ask_last_cumsum"].get(prc2 - 1, 0) - x["D_ask_last_cumsum"].get(prc1, 0)
+            v = v - v_mid
+            a = a - a_mid
+            if v <= 0:
+                continue
+            if (a >= prc2 * v) or (a <= prc1 * v):
+                continue
+
+            v1 = (prc2 * v - a) // (prc2 - prc1)
+            v2 = v - v1
+
+
+            prz_mid = bid_prz_cumsum.get(prc1 + 1, 0) - bid_prz_cumsum.get(prc2, 0) + \
+                      ask_prz_cumsum. get(prc2 - 1, 0) - ask_prz_cumsum.get(prc1, 0)
+            prz1 = min(v1, max(x["D_ask_diff"].get(prc1, 0), 0) + max(x["D_bid_diff"].get(prc1, 0), 0))
+            prz2 = min(v2, max(x["D_ask_diff"].get(prc2, 0), 0) + max(x["D_bid_diff"].get(prc2, 0), 0))
+            prz = prz1 + prz2 + prz_mid
+
+            ## punish of cancel order on border price             
+            pun1 = max(x["D_ask_last"]. get(prc1, 0) - v1, 0)
+            pun2 = max(x["D_bid_last"]. get(prc2, 0) - v2, 0)
+            pun_in = pun1 + pun2
+            
+            score = prz - pun_out - pun_in
+
+            _ex_detail = {i:x["D_ask_last"]. get(i, 0) + x["D_bid_last"]. get(i, 0) \
+                        for i in range(prc1 + 1, prc2)}
+            _ex_detail[prc1] = v1
+            _ex_detail[prc2] = v2
+            obj_res[(prc1, prc2)] = _ex_detail
+            obj_score[(prc1, prc2)] = (score, -(prc2 - prc1))
+            continue
+    score_max = max(obj_score.values())
+    idx_max = [i for i, j in obj_score.items() if j == score_max][0]
+    res["exch_detail"] = obj_res[idx_max]
+    return res
+
+if __name__ == '__main__':
+    for line in sys.stdin:
+        x = json.loads(line)
+        res = calc_exch_detail(x)
+        print(json.dumps(res), end='\n')
+        sys.stdout.flush()
+
