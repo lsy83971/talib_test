@@ -13,24 +13,26 @@ import sys
 
 client = Client(host='localhost', database='', user='default', password='irelia17')
 
-# client.execute("""CREATE FUNCTION dict_neg_key as (x)
-# -> mapApply((k, v) -> (-k, v),x);""")
-# client.execute("""CREATE FUNCTION reverse_map as (x)
-# -> mapFromArrays(reverse(mapKeys(x)),reverse(mapValues(x)));""")
-# client.execute("""CREATE FUNCTION clip_map as (x,b1,b2)
-# -> mapFilter((k, v) -> ((k>=b1) and (k<=b2)),x);""")
-# client.execute("""CREATE FUNCTION clipMapLeft as (x,b1)
-# -> mapFilter((k, v) -> (k>=b1),x);""")
-# client.execute("""CREATE FUNCTION clipMapRight as (x,b2)
-# -> mapFilter((k, v) -> (k<=b2),x);""")
+def read_sql(sql):
+    data, columns = client.execute(sql, columnar=True, with_column_types=True)
+    df = pd.DataFrame({re.sub(r'\W', '_', col[0]): d for d, col in zip(data, columns)})
+    df.colinfo = pd.DataFrame(columns, columns=["name", "typesql"])
+    return df
 
-# client.execute("""CREATE FUNCTION mapFilValuePos as (x)
-# -> mapFilter((k, v) -> (v>0),x);""")
-# client.execute("""CREATE FUNCTION mapFilValueNeg as (x)
-# -> mapFilter((k, v) -> (v<0),x);""")
-# client.execute("""CREATE FUNCTION mapValueNeg as (x)
-# -> mapApply((k, v) -> (k, -v),x);""")
-
+exists_func_names = read_sql(f"select name from system.functions")["name"]. tolist()
+for i, j in [
+        ("dict_neg_key", "(x) -> mapApply((k, v) -> (-k, v),x);"), 
+        ("reverse_map", "(x)-> mapFromArrays(reverse(mapKeys(x)),reverse(mapValues(x)));"), 
+        ("clip_map", "(x,b1,b2)-> mapFilter((k, v) -> ((k>=b1) and (k<=b2)),x);"), 
+        ("clipMapLeft", "(x,b1)-> mapFilter((k, v) -> (k>=b1),x);"), 
+        ("clipMapRight", "(x,b2)-> mapFilter((k, v) -> (k<=b2),x);"), 
+        ("mapFilValuePos", "(x)-> mapFilter((k, v) -> (v>0),x);"), 
+        ("mapFilValueNeg", "(x)-> mapFilter((k, v) -> (v<0),x);"), 
+        ("mapValueNeg", "(x)-> mapApply((k, v) -> (k, -v),x);")]:
+    if i not in exists_func_names:
+        print(f"create function {i}")
+        client.execute(f"""CREATE FUNCTION {i} as {j}""")
+    
 type_map = {
     "int64": "Int64",
     "int32": "Int64",
@@ -53,13 +55,6 @@ def typeinfo(df, add=None):
     except:
         print(df.columns[(~df.columns.isin(d.keys()))])
     return pd.Series(d)
-
-def read_sql(sql):
-    data, columns = client.execute(sql, columnar=True, with_column_types=True)
-    df = pd.DataFrame({re.sub(r'\W', '_', col[0]): d for d, col in zip(data, columns)})
-    df.colinfo = pd.DataFrame(columns, columns=["name", "typesql"])
-    return df
-
 
 def has_db(db):
     return (read_sql(f"select * from system.databases where name='{db}'").shape[0] > 0)
