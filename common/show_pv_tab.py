@@ -62,14 +62,14 @@ order by time
 (df["D_exch"]. apply(DSumMo) - df["amt"]).value_counts().sort_index()
 df["D_exch"]. apply(len).value_counts().sort_index()
 
-sb = df[(df["D_exch"]. apply(DSumMo) - df["amt"]) > 0]. index
+sb = df[(df["D_exch"]. apply(DSumMo) - df["amt"]) > 2]. index
 sb
 gg["D_ask"]
 
 # df.iloc[14399]["Session"]
 # df.iloc[14398]["Session"]
-df.iloc[4574]
 show3(df, sb[0] + 5, 10)
+show3(df, sb[0], 5)
 show3(df, 5, 10)
 show3(df, sb[0] + 55, 60)
 show3(df, 4600, 30)

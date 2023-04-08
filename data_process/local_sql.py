@@ -86,6 +86,10 @@ class table_ch:
         self.db, self.table = name.split(".")
 
     def mater(self, col, expr):
+        self.get_columns()        
+        colnames = self.col_type["name"]. tolist()
+        if col.split(" ")[0] in colnames:
+            return 0
         _sql = f"""
         alter table {self.name} add column {col}
         MATERIALIZED
@@ -166,6 +170,9 @@ class exch_detail(table_ch):
     
     def create(self, type_dict, orderby, partitionby=None):
         super().create(type_dict, orderby, partitionby)
+        self.addcol_mater()
+
+    def addcol_mater(self):
         self.addcol_pvdict()
         self.addcol_cumsum()
         self.addcol_bound()
@@ -173,16 +180,10 @@ class exch_detail(table_ch):
         self.addcol_orderdetail()
     
     def addcol_pvdict(self):
-        self.get_columns()
-        names = self.col_type["name"]
         for i1 in ["ask", "bid"]:
             for i2 in ["", "_last"]:
                 colname = "D_" + i1 + i2
                 
-                if colname in names:
-                    motion = "modify"
-                else:
-                    motion = "add"
                     
                 pairs = list()
                 for i3 in range(1, 6):
@@ -198,19 +199,18 @@ class exch_detail(table_ch):
                     reverse_str2 = ""
                 
                 if i2 == "":
-                    _sql = f"""alter table {self.name} {motion} column
-                    {colname} Map(Int64, Int64) MATERIALIZED
-                    {reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2};
-                    """
+                    self.mater(f"{colname} Map(Int64, Int64)",
+                               f"{reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2}"
+                               )
                 if i2 == "_last":
-                    _sql = f"""alter table {self.name} {motion} column
-                    {colname} Map(Int64, Int64) MATERIALIZED
-                    case when (BP1_last = -1) then map()
-                    else
-                    {reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2} end;
-                    """
-                client.execute(_sql)
-
+                    self.mater(f"{colname} Map(Int64, Int64)",
+                               f"""
+                               case when (BP1_last = -1) then map()
+                               else
+                               {reverse_str1}mapPopulateSeries(map({pairs})){reverse_str2} end;                               
+                               """
+                               )
+                    
         for i1 in ["ask", "bid"]:
             colname = "D_" + i1 + "_diff"
             table = "D_" + i1
@@ -221,13 +221,11 @@ class exch_detail(table_ch):
             else:
                 reverse_str1 = ""
                 reverse_str2 = ""
-            
-            _sql = f"""alter table {self.name} {motion} column
-            {colname} Map(Int64, Int64) MATERIALIZED
-            {reverse_str1}mapSubtract({table_last},{table}){reverse_str2}            
-            """
-            client.execute(_sql)
 
+            self.mater(f"{colname} Map(Int64, Int64)",
+                       f"{reverse_str1}mapSubtract({table_last},{table}){reverse_str2}"
+                       )
+            
     def addcol_cumsum(self):
         for col in ["D_ask", "D_ask_last", "D_ask_diff",
                     "D_bid", "D_bid_last", "D_bid_diff"
@@ -236,93 +234,70 @@ class exch_detail(table_ch):
             if "_diff" in col:
                 v_col = f"arrayMap((x)->max2(0,x),mapValues({col}))"
             else:
-                v_col = f"mapValues({col})"                
-                
-            _sql = f"""alter table {self.name} add column
-            {col}_cumsum Map(Int64,Int64) MATERIALIZED
-            mapFromArrays(mapKeys({col}),arrayCumSum({v_col}))
-            """
-            client.execute(_sql)
+                v_col = f"mapValues({col})"
 
+            self.mater(f"{col}_cumsum Map(Int64,Int64)",
+                       f"mapFromArrays(mapKeys({col}),arrayCumSum({v_col}))")
 
         for col in ["ask", "bid"]:
             D_col = "D_" + col + "_last"
             D_a_col = "D_" + col + "_last_acumsum"
-            
-            _sql = f"""alter table {self.name} add column
-            {D_a_col} Map(Int64,Int64) MATERIALIZED
-            mapFromArrays(
-            mapKeys({D_col}),
-            arrayCumSum(
-             arrayMap((x,y)->(x*y),mapKeys({D_col}),mapValues({D_col}))
-            )
-            )
-            """
-            client.execute(_sql)
-
+            self.mater(f"{D_a_col} Map(Int64,Int64)",
+                       f"""
+                       mapFromArrays(
+                       mapKeys({D_col}),
+                       arrayCumSum(
+                       arrayMap((x,y)->(x*y),mapKeys({D_col}),mapValues({D_col}))
+                       )
+                       )
+                       """)
+                       
     def addcol_bound(self):
         ask_start = "cast(min2(max2(AP1_last, AP1),min2(AP5_last,AP5)) as Int64)"
         ask_end = f"cast(min2(ask_start+4,min2(AP5_last,AP5)+1) as Int64)"
-        _sql = f"""
-        alter table {self.name} add column ask_start
-        Int64 MATERIALIZED {ask_start}
-        """
-        client.execute(_sql)
-        _sql = f"""
-        alter table {self.name} add column ask_bound
-        Int64 MATERIALIZED
-        ask_start+arrayCount(
-        -- (x) -> ((D_ask_cumsum[x]<=vol/2+50)
-        -- and (D_ask_last_cumsum[x]<=vol)), MODIFIED
-        (x) -> (D_ask_last_cumsum[x]<=vol*2+150),
-        range(ask_start,{ask_end})
         
-        )
-        """
-        client.execute(_sql)
+        self.mater("ask_start Int64",
+                   f"{ask_start}")
+                            
+        self.mater("ask_bound Int64",
+                   f"""
+                   ask_start+arrayCount(
+                   (x) -> (D_ask_last_cumsum[x]<=vol*2+150),
+                   range(ask_start,{ask_end}))""")
+
 
         bid_start = "cast(max2(min2(BP1_last, BP1),max2(BP5_last,BP5)) as Int64)"
         bid_end = f"cast(max2(bid_start-4,max2(BP5_last,BP5)-1) as Int64)"
-        _sql = f"""
-        alter table {self.name} add column bid_start
-        Int64 MATERIALIZED {bid_start}
-        """
-        client.execute(_sql)
-        _sql = f"""
-        alter table {self.name} add column bid_bound
-        Int64 MATERIALIZED
-        bid_start-arrayCount(
-        -- (x) -> ((D_bid_cumsum[x]<=vol/2+50)
-        -- and (D_bid_last_cumsum[x]<=vol)), MODIFIED
-        (x) -> (D_bid_last_cumsum[x]<=vol*2+150),
-        range(bid_start,{bid_end},-1)
-        )
-        """
-        client.execute(_sql)
+
+        self.mater("bid_start Int64",f"{bid_start}")
+        self.mater("bid_bound Int64",
+                   f"""
+                   bid_start-arrayCount(
+                   (x) -> (D_bid_last_cumsum[x]<=vol*2+150),
+                   range(bid_start,{bid_end},-1))""")
 
     def addcol_exchdetail(self):
-        _sql = f"""
-        alter table {self.name} add column D_exch
-        Map(Int64,Int64) MATERIALIZED
-        lsy_exch_detail(
-        vol,
-        amt,
-        D_ask_last,
-        D_bid_last,
-        D_ask_diff,
-        D_bid_diff,
-        D_ask_cumsum,
-        D_ask_last_cumsum,
-        D_ask_diff_cumsum,
-        D_bid_cumsum,
-        D_bid_last_cumsum,
-        D_bid_diff_cumsum,
-        D_ask_last_acumsum,
-        D_bid_last_acumsum,
-        ask_bound,
-        bid_bound)
-        """
-        client.execute(_sql)
+        self.mater("D_exch Map(Int64,Int64)",
+                   """
+                   lsy_exch_detail(
+                   vol,
+                   amt,
+                   D_ask_last,
+                   D_bid_last,
+                   D_ask_diff,
+                   D_bid_diff,
+                   D_ask_cumsum,
+                   D_ask_last_cumsum,
+                   D_ask_diff_cumsum,
+                   D_bid_cumsum,
+                   D_bid_last_cumsum,
+                   D_bid_diff_cumsum,
+                   D_ask_last_acumsum,
+                   D_bid_last_acumsum,
+                   ask_bound,
+                   bid_bound)
+                   """
+                   )
 
     def addcol_orderdetail(self):
         self.mater("D_ask_change Map(Int64,Int64)",
@@ -348,6 +323,7 @@ class exch_detail(table_ch):
             need_create = True
         else:
             need_create = False
+            self.addcol_mater()
             
         for i in pd.date_range(d1, d2):
             date = i.strftime("%Y-%m-%d")
@@ -361,8 +337,6 @@ class exch_detail(table_ch):
             if df.shape[0] < 1000:
                 continue
 
-
-
             if need_create:
                 self.create(typeinfo(df), orderby=["date", "time"], partitionby="date")
                 need_create = False
@@ -370,9 +344,12 @@ class exch_detail(table_ch):
             self._raw_insert(df)
 
 if __name__ == "__main__":
+    sb = read_sql("select D_exch,amt from rb.tickdata")
+    #sb["D_exch"]. apply(len).value_counts().sort_index()
     d1 = "20221105"
     d2 = "20230404"
     tick_table = exch_detail("rb")
+    self = tick_table
     tick_table.insert_dates(d1, d2)
 
     tick_table = exch_detail("ru")

@@ -1,1 +1,0 @@
-/var/lib/clickhouse/user_scripts/lsy_exch_detail.py
