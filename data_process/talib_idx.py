@@ -81,6 +81,7 @@ class table_kline_x(table_pipeline_pd):
         WAP as close,
         vol as volume
         from {self.input_name}
+        order by date,time
         """
     
 class table_talib_normal(table_kline_x):
