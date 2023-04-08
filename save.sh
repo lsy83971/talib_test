@@ -6,4 +6,3 @@ cp "/var/lib/clickhouse/user_scripts/lsy_exch_detail.py" "/home/lishiyu/talib_te
 git add *
 git commit -m 'add'
 git push
-done
