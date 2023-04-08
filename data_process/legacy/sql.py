@@ -154,7 +154,6 @@ class table_creator:
         df = read_sql(sql)
         return self.de_reform(df)
 
-
 def tsq(self, table_name, partition=None, orderby=None):
     tc = table_creator(table_name)
     tc.insert_or_create(self, table_name, partition=partition, orderby=orderby)

@@ -156,9 +156,10 @@ class table_ch:
             client.execute(f"drop table {self.name}")
 
     def _raw_insert(self, df):
-        data = df.to_dict('records')
-        cols = ",". join(df.columns)
-        client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
+        cols = ",". join(df.columns)        
+        for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
+            data = i.to_dict('records')
+            client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
 
 class exch_detail(table_ch):
     

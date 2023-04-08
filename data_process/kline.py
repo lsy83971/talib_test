@@ -16,6 +16,8 @@ class table_pipeline(table_ch):
     def input_has(self):
         return has_table(self.input_name)
 
+
+class table_pipeline_sql(table_pipeline):
     def insert_data(self):
         if not self.input_has:
             return 0
@@ -33,7 +35,7 @@ class table_pipeline(table_ch):
     def _insert_sql(self):
         raise
             
-class table_kline_tick(table_pipeline):
+class table_kline_tick(table_pipeline_sql):
     def __init__(self, code):
         super().__init__(input_table="tickdata",
                          output_table="kline_tick",
@@ -85,7 +87,7 @@ class table_kline_tick(table_pipeline):
         #print(_sql)
         return _sql
 
-class table_kline_period(table_pipeline):
+class table_kline_period(table_pipeline_sql):
     orderby = "date,start_time"      
     def __init__(self, code, period):
         assert isinstance(period, int)
@@ -108,10 +110,13 @@ class table_kline_period(table_pipeline):
         any(Symbol) as Symbol,
         max(high) as high,
         min(low) as low,
-        anyLast(WAP) as end_WAP,
-        anyLast(VWAP) as end_VWAP,
-        anyLast(time) as end_time,
-        any(time) as start_time,
+        anyLast(WAP) as WAP,
+        anyLast(VWAP) as VWAP,
+
+        any(t.time) as start_time,
+        anyLast(t.time) as time,
+        --anyLast(time) as end_time,
+        --any(time) as start_time,
         
         anyLast(ORM30) as ORM30,
         anyLast(ORM20) as ORM20,
@@ -144,8 +149,8 @@ class table_kline_period(table_pipeline):
 
         sum(vol) as vol,
         sum(amt) as amt
-        from {self.input_name}
-        group by (date,toInt32(floor((time-0.5)/{self.period})))
+        from {self.input_name} as t
+        group by (date,toInt32(floor((t.time-0.5)/{self.period})))
         """
         return _sql
 
