@@ -1,12 +1,23 @@
 import pandas as pd
+pd.set_option("display.max_rows", 500)
 import numpy as np
 import math
-from common.append_df import cc1, cc2
+from append_df import cc1, cc2
 import sys
-from bin_tools.bins import binning, bins_simple_mean
+sys.path.append("/home/lishiyu/Project/bin_tools")
+from bins import binning, bins_simple_mean
+from pvdict_utils import *
+from exch_detail import append_feature_exch_detail
+from tick_detail import append_tick_detail
+from get_feature_data import get_feature_data
+from timeseries_detail import *
+from clickhouse_driver import Client
+from pandas.api.types import infer_dtype
+from sql import rsq, read_sql, get_kline
+import warnings
+warnings.simplefilter('ignore')
 import re
 import gc
-from talib_info import func_info
 
 def cross_corr(dfx, dfy):
     dfx_v = (~dfx.isnull()).astype(np.float64)
@@ -171,15 +182,11 @@ def sort_index(tmp_df):
 
         
 class xydata(pd.DataFrame):
-    def __init__(self, data,
-                 x_symbol="^TX", y_symbol="^ORM|^ORT", 
-                 d = "date"
-                 ):
+    def __init__(self, data, x_symbol="^TX", y_symbol="^ORM|^ORT"):
         super().__init__(data)
-        self.d = d
         self.idx = self.cc(x_symbol)
         self.idy = self.cc(y_symbol)
-        self.date = data[self.d]. drop_duplicates().sort_values()
+        self.date = data["TradingDay"]. drop_duplicates().sort_values()
     
     def erase_kline_tick_data(self, split_type=1):
         ### type 0 group by date
@@ -190,9 +197,9 @@ class xydata(pd.DataFrame):
     def cross_corr(self):
         self.corrxy = cross_corr(self[self.idx], self[self.idy])
 
-    def daywise_corr(self):
+    def daywise_corr(self, d="TradingDay"):
         self.dcorrxy_sharp, self.dcorrxy_mean, self.dcorrxy_std, self.dcorrxy_corr = \
-            daywise_corr(self, self.d, self.idx, self.idy)
+            daywise_corr(self, d, self.idx, self.idy)
 
     def to_excel(self, path, append_info=None):
         with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
@@ -237,14 +244,19 @@ class xydata(pd.DataFrame):
                     
 
 if __name__ == "__main__":
-    i = 5
-    TXB = table_talib_normal(code, f"kline_{i}", f"TXB_{i}")    
-    df = TXB.get_join_data()
-    df = xydata(df)
+    from timeseries_detail import func_info
+    data = get_kline("rb.detail")
+    data = cc2(data, append_crossday_return)
+    Ry = data.cc("RT|RM").ncc("ORT|ORM").tolist()
+    data = cc2(data, append_techIdxBasic)
+    data = cc2(data, append_MAIdx)
+
+    df = xydata(data)
+    df.erase_kline_tick_data()
     df.cross_corr()
     df.daywise_corr()
-    df.to_excel()
-    df.to_excel(f"./output/TBX_{i}.xlsx", append_info={"function_info": func_info})
+
+
     #for period in [1, 5, 10, 30, 60]:
     for period in [1, 5, 10, 30, 60]:        
         data = get_kline("rb.detail", period)
@@ -255,7 +267,6 @@ if __name__ == "__main__":
         df = xydata(data)
         df.cross_corr()
         df.daywise_corr()
-
 
 
         with pd.ExcelWriter(f"corr_period_{period}.xlsx", engine='xlsxwriter') as writer:

@@ -22,14 +22,18 @@ def load_data(code, d1, d2):
     for i in ["tick", 5, 10, 15, 20, 30, 60, 90, 150, 300]:
         print(f"create table: {code}.TXB_{i}")        
         TXB = table_talib_normal(code, f"kline_{i}", f"TXB_{i}")
-        TXB.insert_data()
         
+        TXB.insert_data()
 
 if __name__ == "__main__":
     d1 = "20221105"
     d2 = "20230404"
     code = "rb"
     load_data(code, d1, d2)
+    df = TXB.get_join_data()
+    # df.iloc[0]
+    #(df["close"] - df["high"] >= 0).mean()
+    #(df["close"] - df["low"] < 0).mean()
 
     d1 = "20221105"
     d2 = "20230404"
@@ -53,5 +57,7 @@ if __name__ == "__main__":
     and a.time=b.time
     """)
     
-    #read_sql("select RT5 from rb.kline_5"). abs().mean()
+    gg = read_sql("select * from rb.TXB_300")
+    gg.iloc[0]
     #read_sql("select RT10 from rb.kline_5"). abs().mean()
+    

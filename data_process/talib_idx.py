@@ -7,6 +7,7 @@ from common.append_df import cc1, cc2
 import talib
 from talib.abstract import *
 from talib_info import func_info, single_func, multi_func
+from bin_tools import bins
 
 def fna(self):
     return self.fillna(method="ffill").fillna(method="bfill")
@@ -78,10 +79,31 @@ class table_kline_x(table_pipeline_pd):
         time,
         high,
         low,
-        WAP as close,
+        VWAP as close,
         vol as volume
         from {self.input_name}
         order by date,time
+        """
+
+    def get_input_columns(self):
+        sql = f"""select name,type from system.columns
+        where table='{self.input_table}' and database='{self.db}'"""
+        self.input_col_type = read_sql(sql)
+
+
+    def get_join_data(self):
+        return read_sql(self._join_sql())
+        
+    def _join_sql(self):
+        self.get_input_columns()
+        idy = "b." + self.input_col_type["name"]. cc("^ORM|^RM|WAP")
+        return f"""
+        select a.*,{','.join(idy.tolist())}
+        from {self.name} as a
+        inner join {self.input_name} as b
+        on a.date=b.date
+        and a.time=b.time
+        order by a.date,a.time
         """
     
 class table_talib_normal(table_kline_x):
@@ -98,3 +120,4 @@ if __name__ == "__main__":
             TXB.insert_data()
     
 
+            

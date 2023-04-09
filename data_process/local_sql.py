@@ -156,7 +156,8 @@ class table_ch:
 
     def _raw_insert(self, df):
         cols = ",". join(df.columns)        
-        for j, i in enumerate(np.split(df, range(0, df.shape[0], 10000))):
+        for j, i in enumerate(np.split(df, range(0, df.shape[0], 50000))):
+            print(f"insert part {j}")
             data = i.to_dict('records')
             client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
 
