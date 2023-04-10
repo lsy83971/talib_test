@@ -79,7 +79,6 @@ def has_date(name, date):
     else:
         return False
     
-
 class table_ch:
     def __init__(self, name):
         self.name = name

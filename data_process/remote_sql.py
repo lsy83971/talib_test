@@ -175,6 +175,7 @@ def append_basic_feature(df):
     res["amt"]. iloc[0] = df["amt_sum"]. iloc[0] / v_mult
     res["VWAP"] = (res["amt"] / res["vol"]).ffill()
     res["WAP"] = (((df["AP1"] * df["BV1"]) + (df["BP1"] * df["AV1"])) / (df["AV1"] + df["BV1"])).ffill()
+    res["MID"] = (df["AP1"] + df["BP1"]) / 2
 
     # 4. lag1
     # TODO may be delete day2

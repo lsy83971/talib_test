@@ -2,6 +2,31 @@ from local_sql import table_ch, has_table, has_date, read_sql, client
 import pandas as pd
 import numpy as np
 
+period_map = {
+    "RM30":  30 * 120, 
+    "RM20":  20 * 120, 
+    "RM15":  15 * 120, 
+    "RM10":  10 * 120, 
+    "RM5":  5 * 120, 
+    "RM3":  3 * 120, 
+    "RM2":  2 * 120, 
+    "RM1":  1 * 120, 
+    "RT60":  60, 
+    "RT30":  30, 
+    "RT20":  20, 
+    "RT10":  10, 
+    "RT5":  5,
+
+
+}
+
+period_map_total = {**{i:(0, j) for i, j in period_map.items()},
+                    **{"O" + i:(1, j) for i, j in period_map.items()},
+                    **{"M" + i:(2, j) for i, j in period_map.items()},
+                    **{"OM" + i:(3, j) for i, j in period_map.items()},                                        
+                    }
+
+
 class table_pipeline(table_ch):
     orderby = "date,time"
     def __init__(self, code, input_table, output_table):
@@ -15,7 +40,6 @@ class table_pipeline(table_ch):
     @property
     def input_has(self):
         return has_table(self.input_name)
-
 
 class table_pipeline_sql(table_pipeline):
     def insert_data(self):
@@ -34,44 +58,31 @@ class table_pipeline_sql(table_pipeline):
 
     def _insert_sql(self):
         raise
-            
+
 class table_kline_tick(table_pipeline_sql):
     def __init__(self, code):
         super().__init__(input_table="tickdata",
-                         output_table="kline_tick",
+                         output_table="kline_1",
                          code=code
                          )
         
     def _insert_sql(self):
         l_str = list()
-        for i, j in [
-                ("RM30", 30 * 120, ), 
-                ("RM20", 20 * 120, ), 
-                ("RM15", 15 * 120, ), 
-                ("RM10", 10 * 120, ), 
-                ("RM5", 5 * 120, ), 
-                ("RM3", 3 * 120, ), 
-                ("RM2", 2 * 120, ), 
-                ("RM1", 1 * 120, ), 
-                ("RT60", 60, ), 
-                ("RT30", 30, ), 
-                ("RT20", 20, ), 
-                ("RT10", 10, ), 
-                ("RT5", 5, ), 
-        ]:
+        for i, j in period_map. items():
             for window, surfix in [("w1", "O"), ("w2", "")]:
-                l_str.append(f"""
-                (case when (nth_value(VWAP,{j+1}) over {window})=0 then null
-                else nth_value(VWAP,{j+1}) over {window} END)-VWAP as {surfix}{i}
-                """)
-                
-        
+                for ret_idx, surfix1 in [("VWAP", ""), ("MID", "M")]:
+                    l_str.append(f"""
+                    (case when (nth_value({ret_idx},{j+1}) over {window})=0 then null
+                    else nth_value({ret_idx},{j+1}) over {window} END)-{ret_idx} as {surfix}{surfix1}{i}
+                    """)
+                    
         _sql = f"""
         SELECT date,Session,time,vMult,Symbol,
         case when vol=0 then null
         else arrayMax(mapKeys(mapFilValuePos(D_exch))) end as high,
         case when vol=0 then null
         else arrayMin(mapKeys(mapFilValuePos(D_exch))) end as low,
+        MID,
         VWAP,
         WAP,
         vol,
@@ -92,16 +103,18 @@ class table_kline_period(table_pipeline_sql):
     def __init__(self, code, period):
         assert isinstance(period, int)
         assert period >= 1
-        assert period <= 300
-        assert 900 % period == 0
+        assert period <= 600
+        assert 1800 % period == 0
 
         self.period = period
-        super().__init__(input_table="kline_tick",
+        super().__init__(input_table="kline_1",
                          output_table="kline_" + str(period),
                          code=code
                          )
     
     def _insert_sql(self):
+        ret_idx_cluster = sorted(period_map_total, key=lambda x:period_map_total[x])
+        ret_idx_str = " ". join([f"anyLast({i}) as {i}," for i in ret_idx_cluster])
         _sql = f"""
         select
         date,
@@ -112,40 +125,14 @@ class table_kline_period(table_pipeline_sql):
         min(low) as low,
         anyLast(WAP) as WAP,
         anyLast(VWAP) as VWAP,
+        anyLast(MID) as MID,        
 
         any(t.time) as start_time,
         anyLast(t.time) as time,
         --anyLast(time) as end_time,
         --any(time) as start_time,
-        
-        anyLast(ORM30) as ORM30,
-        anyLast(ORM20) as ORM20,
-        anyLast(ORM15) as ORM15,
-        anyLast(ORM10) as ORM10,
-        anyLast(ORM5) as ORM5,
-        anyLast(ORM3) as ORM3,
-        anyLast(ORM2) as ORM2,
-        anyLast(ORM1) as ORM1,
-        anyLast(ORT60) as ORT60,
-        anyLast(ORT30) as ORT30,
-        anyLast(ORT20) as ORT20,
-        anyLast(ORT10) as ORT10,
-        anyLast(ORT5) as ORT5,
 
-        anyLast(RM30) as RM30,
-        anyLast(RM20) as RM20,
-        anyLast(RM15) as RM15,
-        anyLast(RM10) as RM10,
-        anyLast(RM5) as RM5,
-        anyLast(RM3) as RM3,
-        anyLast(RM2) as RM2,
-        anyLast(RM1) as RM1,
-        anyLast(RT60) as RT60,
-        anyLast(RT30) as RT30,
-        anyLast(RT20) as RT20,
-        anyLast(RT10) as RT10,
-        anyLast(RT5) as RT5,
-        
+        {ret_idx_str}
 
         sum(vol) as vol,
         sum(amt) as amt
@@ -164,5 +151,6 @@ if __name__ == "__main__":
     for i in [5, 10, 15, 20, 30, 60, 90, 150, 300]:
         tkp_dict[i] = table_kline_period("rb", i)
         tkp_dict[i].insert_data()
-    
+
+        
     read_sql("""select * from rb.kline_150""")

@@ -32,8 +32,6 @@ def append_techIdxBasic(data):
         if idx not in res_df.columns:
             continue
         res_df[idx] = res_df[idx] - data["close"]
-
-    res_df.columns = "TXB_" + res_df.columns
     return res_df
 
 def append_MAIdx(data):
@@ -79,7 +77,7 @@ class table_kline_x(table_pipeline_pd):
         time,
         high,
         low,
-        VWAP as close,
+        {self.close_idx} as close,
         vol as volume
         from {self.input_name}
         order by date,time
@@ -96,7 +94,7 @@ class table_kline_x(table_pipeline_pd):
         
     def _join_sql(self):
         self.get_input_columns()
-        idy = "b." + self.input_col_type["name"]. cc("^ORM|^RM|WAP")
+        idy = "b." + self.input_col_type["name"]. cc("^OM{0,1}R[MT]|^M{0,1}R[MT]|WAP")
         return f"""
         select a.*,{','.join(idy.tolist())}
         from {self.name} as a
@@ -105,17 +103,20 @@ class table_kline_x(table_pipeline_pd):
         and a.time=b.time
         order by a.date,a.time
         """
-    
+
 class table_talib_normal(table_kline_x):
-    @staticmethod
-    def transform_data(df):
+    def transform_data(self, df):
         df["open"] = df["close"]. shift(1).ffill()
-        df = cc2(df, append_techIdxBasic)
+        df1 = append_techIdxBasic(df)
+        df1.columns = self.surfix + "_" + df1.columns
+        df = pd.concat([df, df1], axis=1)
         return df
 
+talib_period = [1, 5, 10, 20, 30, 40, 60, 120, 180, 300, 600]
+    
 if __name__ == "__main__":
     for code in ["rb", "ru", "cu"]    :
-        for i in [5, 10, 15, 20, 30, 60, 90, 150, 300]:
+        for i in talib_period:
             TXB = table_talib_normal(code, f"kline_{i}", f"TXB_{i}")
             TXB.insert_data()
     
