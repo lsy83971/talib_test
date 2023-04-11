@@ -1,9 +1,6 @@
-
 from local_sql import table_ch, has_table, has_date, read_sql, client
 import pandas as pd
 import numpy as np
-
-kline_period = [1, 5, 10, 20, 30, 40, 60, 120, 180, 300, 600]
 
 period_map = {
     "RM30":  30 * 120, 
@@ -19,8 +16,8 @@ period_map = {
     "RT20":  20, 
     "RT10":  10, 
     "RT5":  5,
-    "RT3":  3,    
-    "RT1":  1,    
+    # "RT3":  3,    
+    # "RT1":  1,    
 }
 
 period_map_total = {**{i:(0, j) for i, j in period_map.items()},
@@ -101,49 +98,6 @@ class table_kline_tick(table_pipeline_sql):
         #print(_sql)
         return _sql
 
-class table_kline_period(table_pipeline_sql):
-    orderby = "date,start_time"      
-    def __init__(self, code, period):
-        assert isinstance(period, int)
-        assert period >= 1
-        assert period <= 600
-        assert 1800 % period == 0
-
-        self.period = period
-        super().__init__(input_table="kline_1",
-                         output_table="kline_" + str(period),
-                         code=code
-                         )
-    
-    def _insert_sql(self):
-        ret_idx_cluster = sorted(period_map_total, key=lambda x:period_map_total[x])
-        ret_idx_str = " ". join([f"anyLast({i}) as {i}," for i in ret_idx_cluster])
-        _sql = f"""
-        select
-        date,
-        any(Session) as Session,
-        any(vMult) as vMult,
-        any(Symbol) as Symbol,
-        max(high) as high,
-        min(low) as low,
-        anyLast(WAP) as WAP,
-        anyLast(VWAP) as VWAP,
-        anyLast(MID) as MID,        
-
-        any(t.time) as start_time,
-        anyLast(t.time) as time,
-        --anyLast(time) as end_time,
-        --any(time) as start_time,
-
-        {ret_idx_str}
-
-        sum(vol) as vol,
-        sum(amt) as amt
-        from {self.input_name} as t
-        group by (date,toInt32(floor((2*t.time-1)/{self.period})))
-        """
-        return _sql
-
 class table_kline_period_whole(table_pipeline_sql):
     orderby = "date,time"      
     def __init__(self, code):
@@ -182,18 +136,18 @@ class table_kline_period_whole(table_pipeline_sql):
         low as low_1,
         vol as vol_1,
         amt as amt_1,        
-        {",".join([str_idx.format(i=i) for i in kline_period[1:]])},
+        {",".join([str_idx.format(i=i) for i in talib_period[1:]])},
         {ret_idx_str}
         from {self.input_name} as t
         WINDOW
-        {",".join([str_windows.format(i=i,i1=i-1) for i in kline_period[1:]])}
+        {",".join([str_windows.format(i=i,i1=i-1) for i in talib_period[1:]])}
 
         """
-        #print(_sql)
+        print(_sql)
         return _sql
 
 ########################
-#kline_period = [5, 10, 20, 30, 40, 60, 120, 180, 300, 600]
+#talib_period = [5, 10, 20, 30, 40, 60, 120, 180, 300, 600]
 #pd.Series(period_map_total)
 if __name__ == "__main__":
     tk0 = table_kline_period_whole("rb")

@@ -10,6 +10,8 @@ from remote_sql import get_daily_max
 from common.append_df import cc2
 from bin_tools import bins
 import sys
+import multiprocessing
+from multiprocessing import Pool
 
 client = Client(host='localhost', database='', user='default', password='irelia17')
 
@@ -154,11 +156,22 @@ class table_ch:
             client.execute(f"drop table {self.name}")
 
     def _raw_insert(self, df):
+        pool = Pool(processes=12)
         cols = ",". join(df.columns)        
-        for j, i in enumerate(np.split(df, range(0, df.shape[0], 50000))):
+        for j, i in enumerate(np.split(df, range(100000, df.shape[0], 100000))):
             print(f"insert part {j}")
-            data = i.to_dict('records')
-            client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
+            pool.apply_async(_insert_df, args=(i, self.name, cols))
+            #data = i.to_dict('records')
+            #client.execute(f"INSERT INTO {self.name} ({cols}) VALUES", data, types_check=True)
+        print("join start")
+        pool.close()
+        pool.join()
+        print("join end")
+
+def _insert_df(data, name, cols):
+    data = data.to_dict('records')
+    client = Client(host='localhost', database='', user='default', password='irelia17')
+    client.execute(f"INSERT INTO {name} ({cols}) VALUES", data, types_check=True)
 
 class exch_detail(table_ch):
     

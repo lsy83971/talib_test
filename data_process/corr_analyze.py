@@ -6,9 +6,10 @@ import sys
 from bin_tools.bins import binning, bins_simple_mean
 import re
 import gc
+from local_sql import read_sql
 from talib_info import func_info
-from talib_idx import table_talib_normal, talib_period
-from kline import period_map, period_map_total
+from talib_idx import table_talib_normal, table_talib_period_whole, table_kline_x
+from kline import period_map, period_map_total, kline_period
 
 from openpyxl import load_workbook
 from openpyxl.styles import Border, Side
@@ -60,6 +61,7 @@ def daywise_corr(data, d, xidx, yidx):
     daywise_std = pd.DataFrame(np.nanstd(daywise_corr_df, axis=0), index=yidx, columns=xidx)
     daywise_sharpe = daywise_mean / daywise_std
     return daywise_sharpe, daywise_mean, daywise_std, daywise_corr_df
+
 
 class excel_ws(openpyxl.worksheet.worksheet.Worksheet):
     def load_df(self, df):
@@ -250,33 +252,27 @@ def sort_index(tmp_df):
     tmp_df = tmp_df[pd.Series({i:period_map_total.get(i, 0) for i in tmp_df.columns}).sort_values().index]
     return tmp_df
         
-class xydata(pd.DataFrame):
+class xydata:
     def __init__(self, data,
                  x_symbol="^TX", y_symbol="^ORM|^ORT", 
                  d = "date"
                  ):
-        super().__init__(data)
+        self.data = data
         self.d = d
-        self.idx = sorted(self.cc(x_symbol), key=get_idx_info)
-        self.idy = sorted(self.cc(y_symbol), key=get_idy_info)
+        self.idx = sorted(self.data.cc(x_symbol), key=get_idx_info)
+        self.idy = sorted(self.data.cc(y_symbol), key=get_idy_info)
         self.dl = data[self.d]. drop_duplicates().sort_values()
-    
-    def erase_kline_tick_data(self, split_type=1):
-        ### type 0 group by date
-        ### type 1 group by (date (morning, afternoon,night))
-        ### type 2 group by (date (day, night))
-        erase_kline_tickdata(self, self.idx, self.idy, split_type=split_type)
-
+        self.null_rate = self.data.isnull().mean()[self.idx]
     def cross_corr(self):
-        self.cor = cross_corr(self[self.idx], self[self.idy])
+        self.cor = cross_corr(self.data[self.idx], self.data[self.idy])
 
     def daywise_corr(self):
         self.dcor_sharpe, self.dcor_mean, self.dcor_std, self.dcor_corr = \
-            daywise_corr(self, self.d, self.idx, self.idy)
+            daywise_corr(self.data, self.d, self.idx, self.idy)
 
-    @property
-    def null_rate(self):
-        return self.isnull().mean()[self.idx]
+    # @property
+    # def null_rate(self):
+    #     return self.data.isnull().mean()[self.idx]
 
     def to_excel(self, path, append_info=None):
         with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
@@ -318,31 +314,34 @@ class xydata(pd.DataFrame):
                                        "font": "Courier New",
                                        "font_size": 10,                         
                                    })
+
+    def b2(self, x, y=None):
+        if y is None:
+            return self.data.b2(x=x, y=self.idy)
+        else:
+            return self.data.b2(x=x, y=y)
                     
 class talib_corr(table_talib_normal):
-    def get_corr(self):
-        self.data = xy_data(self. get_join_data())
-        self.data.cross_corr()
-        self.data.daywise_corr()
-
-class corr_talib_basic(table_talib_normal):
-    def __init__(self, code, period):
-        super().__init__(code, f"kline_{period}", f"TXV_{period}")
-        
     def get_corr(self, **params):
         self.data = xydata(self. get_join_data(), **params)
         self.data.cross_corr()
         self.data.daywise_corr()
 
-class corr_talib_m(table_talib_normal):
+class corr_talib_v(talib_corr):
     def __init__(self, code, period):
-        super().__init__(code, f"kline_{period}", f"TXM_{period}")
-        
-    def get_corr(self, **params):
-        self.data = xydata(self. get_join_data(), **params)
-        self.data.cross_corr()
-        self.data.daywise_corr()
-        
+        super(table_kline_x, self).__init__(code, f"kline_{period}", f"TXV_{period}")
+
+class corr_talib_m(talib_corr):
+    def __init__(self, code, period):
+        super(table_kline_x, self).__init__(code, f"kline_{period}", f"TXM_{period}")
+
+class corr_talib_v_whole(talib_corr):
+    def __init__(self, code, period):
+        super(table_kline_x, self).__init__(code, f"kline_1", f"TXV_{period}_whole")
+
+class corr_talib_m_whole(talib_corr):
+    def __init__(self, code, period):
+        super(table_kline_x, self).__init__(code, f"kline_1", f"TXM_{period}_whole")
 
 def excel_3color(v=0.1):
     res = ColorScaleRule(
@@ -367,22 +366,22 @@ def excel_bar(color="#63C384"):
     return res
 
 class corr_pcluster(dict):
-    #_period = talib_period[8:]
-    _period = talib_period
+    #_period = kline_period[8:]
+    _period = kline_period
     def __init__(self, code, cls, **params):
         super().__init__()
         for i in self._period:
             print(f"period {i}, fetch data ")
             self[i] = cls(code, i)
-            print(f"period {i}, calc corr ")
             self[i]. get_corr(**params)
+            del self[i]. data.data
             # self[i]. data.cor["period"] = i
             # self[i]. data.dcor_sharpe["period"] = i
             # self[i]. data.dcor_mean["period"] = i
             # self[i]. data.dcor_std["period"] = i
 
-    def null_rate(self):
-        pass
+    # def null_rate(self):
+    #     pass
 
     def lift_dim(self, i):
         return np.array([getattr(self[j1]. data, i) for j1 in sorted(self)])
@@ -464,30 +463,75 @@ class corr_pcluster(dict):
                 for i, j in append_info.items():
                     beautify_excel_new(j, i, writer,
                                        conditional_format=[])
-                    
-            
+
+class corr_pcluster_test(corr_pcluster):
+    _period = kline_period[8:]
+
 if __name__ == "__test__":
     # TXB_cluster[300]. data.idy.shape
     # self = TXB_cluster
-    TXB_cluster = corr_pcluster("rb", corr_talib_basic, y_symbol="^ORM|^ORT|^OMRM|^OMRT")
-    TXB_cluster.to_excel("./output/CORR_TXB.xlsx", append_info={"func_info": func_info})
+    TXM = corr_pcluster("rb", corr_talib_m_whole, y_symbol="^O{0,1}M{0,1}R[MT]")
+    TXM.to_excel("./output/CORR_TXM.xlsx", append_info={"func_info": func_info})
 
-    TXM_cluster = corr_pcluster("rb", corr_talib_m, y_symbol="^ORM|^ORT|^OMRM|^OMRT")
+    TXM[300]. data
+    TXM.lift_concat("cor")
+    sb = TXM.lift_dict("cor")    
+    self = TXM
+    i = "cor"
+
+    TXV_test = corr_pcluster_test("rb", corr_talib_m_whole, y_symbol="^O{0,1}M{0,1}R[MT]")
+    print(TXV_test[300]. _join_sql())
+    
+    test_obj = xydata(TXV_test[300]. data)
+    test_obj.cross_corr()
+    test_obj.daywise_corr()
+    
+    
+    TXV_test = corr_pcluster_test("rb", corr_talib_basic, y_symbol="^O{0,1}M{0,1}R[MT]")
+    TXV_test[300]. idy
+    
+    TXV_cluster = corr_pcluster("rb", corr_talib_basic, y_symbol="^O{0,1}M{0,1}R[MT]")
+    TXV_cluster.to_excel("./output/CORR_TXV.xlsx", append_info={"func_info": func_info})
+
+    TXM_cluster = corr_pcluster("rb", corr_talib_m, y_symbol="^O{0,1}M{0,1}R[MT]")
     TXM_cluster.to_excel("./output/CORR_TXM.xlsx", append_info={"func_info": func_info})
     
+    gg = read_sql("select * from rb.TXM_300 limit 100")
+    gg.iloc[0]
+    #TXV_cluster.to_excel = MethodType(to_excel, TXV_cluster)
+    #from types import MethodType
+    #from talib.abstract import * 
+    #STOCHF(TXV_cluster[1]. data)["fastd"]. isnull().mean()
+    #(STOCHF(TXV_cluster[1]. data)["fastk"]. isnull()).mean()
+    #STOCHF(TXV_cluster[1]. data).iloc[1105:1205]
+    #STOCHF(TXV_cluster[1]. data)[STOCHF(TXV_cluster[1]. data)4["fastk"]. isnull()]. head(200)
+    #TXV_cluster[1]. data[~STOCHF(TXV_cluster[1]. data)["fastd"]. isnull()]. shape    
     
-    TXB_cluster.to_excel = MethodType(to_excel, TXB_cluster)
-    from types import MethodType
-    from talib.abstract import * 
-    STOCHF(TXB_cluster[1]. data)["fastd"]. isnull().mean()
-    (STOCHF(TXB_cluster[1]. data)["fastk"]. isnull()).mean()
-    STOCHF(TXB_cluster[1]. data).iloc[1105:1205]
-    STOCHF(TXB_cluster[1]. data)[STOCHF(TXB_cluster[1]. data)4["fastk"]. isnull()]. head(200)
-    TXB_cluster[1]. data[~STOCHF(TXB_cluster[1]. data)["fastd"]. isnull()]. shape    
+
+
+
+
+        TXM = table_talib_period_whole(code="rb",
+                                       close_idx="MID",
+                                       period=30, 
+                                       surfix="TXM",
+                                       input_table="kline_whole",
+                                       output_table=f"TXM_{30}_whole"
+                                       )
+        df = TXM.get_join_data()
+        df.shape
+        df.iloc[0]
     
+corr_talib_m_whole("rb", 300)
+
+read_sql("select count(1) from rb.TXM_300_whole")
+
+
+class asdf(pd.DataFrame):
+    pass
+
+sb = asdf([[1, 2], [3, 4]])
+sb
 
 
 
-
-
-    

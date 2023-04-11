@@ -1,5 +1,5 @@
 from local_sql import table_ch, has_table, has_date, read_sql, client, typeinfo
-from kline import table_pipeline
+from kline import table_pipeline, kline_period
 import pandas as pd
 import numpy as np
 import math
@@ -69,26 +69,17 @@ class table_pipeline_pd(table_pipeline):
     def _get_sql(self):
         raise
 
-class table_kline_x(table_pipeline_pd):
-    def _get_sql(self):
-        return f"""
-        select
-        date,
-        time,
-        high,
-        low,
-        {self.close_idx} as close,
-        vol as volume
-        from {self.input_name}
-        order by date,time
-        """
-
     def get_input_columns(self):
         sql = f"""select name,type from system.columns
         where table='{self.input_table}' and database='{self.db}'"""
         self.input_col_type = read_sql(sql)
 
-
+class table_kline_x(table_pipeline_pd):
+    def __init__(self, close_idx, surfix, **params):
+        super().__init__(**params)
+        self.close_idx = close_idx
+        self.surfix = surfix        
+        
     def get_join_data(self):
         return read_sql(self._join_sql())
         
@@ -104,7 +95,51 @@ class table_kline_x(table_pipeline_pd):
         order by a.date,a.time
         """
 
+class table_talib_period_whole(table_kline_x):
+    def __init__(self, period, **params):
+        super().__init__(**params)
+        self.period = period
+    
+    def _get_sql(self):
+        return f"""
+        select
+        date,
+        time,
+        Symbol,
+        high_{self.period} as high,
+        low_{self.period} as low,
+        {self.close_idx} as close,
+        vol_{self.period} as volume
+        from {self.input_name}
+        order by date,time
+        """
+
+    def transform_data(self, df):
+        l = list()
+        for _, _df in df.groupby("Symbol"):
+            for i in range(self.period):
+                __df = _df.iloc[i::self.period,:]
+                __df["open"] = __df["close"]. shift(1).ffill()
+                __df1 = append_techIdxBasic(__df)
+                __df1.columns = self.surfix + "_" + __df1.columns
+                __df = pd.concat([__df, __df1], axis=1)
+                l.append(__df)
+        return pd.concat(l)
+
 class table_talib_normal(table_kline_x):
+    def _get_sql(self):
+        return f"""
+        select
+        date,
+        time,
+        high,
+        low,
+        {self.close_idx} as close,
+        vol as volume
+        from {self.input_name}
+        order by date,time
+        """
+    
     def transform_data(self, df):
         df["open"] = df["close"]. shift(1).ffill()
         df1 = append_techIdxBasic(df)
@@ -112,13 +147,25 @@ class table_talib_normal(table_kline_x):
         df = pd.concat([df, df1], axis=1)
         return df
 
-talib_period = [1, 5, 10, 20, 30, 40, 60, 120, 180, 300, 600]
-    
-if __name__ == "__main__":
-    for code in ["rb", "ru", "cu"]    :
-        for i in talib_period:
-            TXB = table_talib_normal(code, f"kline_{i}", f"TXB_{i}")
-            TXB.insert_data()
-    
+if __name__ == "__test__":
+    TXM = table_talib_period_whole(period=600,
+                                   close_idx="MID",
+                                   surfix="TXM", 
+                                   code=code, input_table=f"kline_whole",output_table=f"TXM_{i}_whole")
 
-            
+    TXM1 = table_talib_normal(
+        close_idx = "MID",
+        surfix="TXM", 
+        code=code,
+        input_table="kline_300",
+        output_table="TXM_300")
+
+    df1 = TXM1.get_data()
+    df = TXM.get_data()
+
+    gg = df1.merge(df, on=["date", "time"], how="left")
+    gg[["TXM_BBANDS_middleband_y", "TXM_BBANDS_middleband_x", "date", "time"]]. sort_values(["date", "time"])
+
+
+    TXM.get_join_data()    
+

@@ -1,6 +1,11 @@
 from local_sql import exch_detail, read_sql, client
-from kline import table_kline_period, table_kline_tick
-from talib_idx import table_talib_normal, talib_period
+from kline import table_kline_period, table_kline_tick, table_kline_period_whole, kline_period
+from talib_idx import table_talib_normal, table_talib_period_whole
+
+d1 = "20221105"
+d2 = "20230404"
+#d2 = "20221110"    
+code = "rb"
 
 def load_data(code, d1, d2):
     print("STEP1: Insert tickdata")
@@ -11,29 +16,59 @@ def load_data(code, d1, d2):
     print("create table: kline_1")
     tk0 = table_kline_tick(code)
     tk0.insert_data()
-    tkp_dict = dict()
+
+    print("create table: kline_whole")
+    tk0 = table_kline_period_whole(code)
+    tk0.insert_data()
     
-    for i in talib_period[1:]:
+    tkp_dict = dict()
+    for i in kline_period[1:]:
         print(f"create table: {code}.kline_{i}")
         tkp_dict[i] = table_kline_period(code, i)
         tkp_dict[i].insert_data()
 
     print("STEP3: Insert TXB(talib index basic)")
-    for i in talib_period:
+    for i in kline_period[1:]:
         print(f"create table: {code}.TXV_{i}")        
-        TXB = table_talib_normal(code, f"kline_{i}", f"TXV_{i}")
-        TXB.close_idx = "VWAP"
-        TXB.surfix = "TXV"                
-        TXB.insert_data()
+        TXV = table_talib_normal(code=code,
+                                 close_idx="VWAP",
+                                 surfix="TXV", 
+                                 input_table=f"kline_{i}",
+                                 output_table=f"TXV_{i}")
+        TXV.insert_data()
+        TXV = table_talib_period_whole(code="rb",
+                                       close_idx="VWAP",
+                                       period=i, 
+                                       surfix="TXV",
+                                       input_table="kline_whole",
+                                       output_table=f"TXV_{i}_whole"
+                                       )
+        TXV.insert_data()
+        
 
     print("STEP4: Insert TXM(talib index mid)")
-    for i in talib_period:
-        print(f"create table: {code}.TXM_{i}")            
-        TXM = table_talib_normal(code, f"kline_{i}", f"TXM_{i}")
-        TXM.close_idx = "MID"
-        TXM.surfix = "TXM"                        
+    for i in kline_period:
+        print(f"create table: {code}.TXM_{i}")        
+        TXM = table_talib_normal(code=code,
+                                 close_idx="MID",
+                                 surfix="TXM", 
+                                 input_table=f"kline_{i}",
+                                 output_table=f"TXM_{i}")
         TXM.insert_data()
+        TXM = table_talib_period_whole(code="rb",
+                                       close_idx="MID",
+                                       period=i, 
+                                       surfix="TXM",
+                                       input_table="kline_whole",
+                                       output_table=f"TXM_{i}_whole"
+                                       )
+        TXM.insert_data()
+
+        # df = read_sql(TXM._get_sql())
+        # df
         
+        
+# cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l
 
 if __name__ == "__main__":
     d1 = "20221105"
@@ -78,7 +113,7 @@ if __name__ == "__main__":
     # and a.time=b.time
     # """)
     
-    # gg = read_sql("select * from rb.TXB_300")
+    gg = read_sql("select count(1) from rb.TXV_600_whole")
     # gg.iloc[0]
     # #read_sql("select RT10 from rb.kline_5"). abs().mean()
     
