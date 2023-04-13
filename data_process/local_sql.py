@@ -6,7 +6,7 @@ import re
 #from importlib import reload
 #import remote_sql
 #reload(remote_sql)
-from remote_sql import get_daily_max
+from data_process.remote_sql import get_daily_max
 from common.append_df import cc2
 from bin_tools import bins
 import sys

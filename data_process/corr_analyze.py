@@ -6,10 +6,10 @@ import sys
 from bin_tools.bins import binning, bins_simple_mean
 import re
 import gc
-from local_sql import read_sql
-from talib_info import func_info
-from talib_idx import table_talib_normal, table_talib_period_whole, table_kline_x
-from kline import period_map, period_map_total, kline_period
+from data_process.local_sql import read_sql
+from data_process.talib_info import func_info
+from data_process.talib_idx import table_talib_normal, table_talib_period_whole, table_kline_x
+from data_process.kline import period_map, period_map_total, kline_period
 
 from openpyxl import load_workbook
 from openpyxl.styles import Border, Side
@@ -62,6 +62,16 @@ def daywise_corr(data, d, xidx, yidx):
     daywise_sharpe = daywise_mean / daywise_std
     return daywise_sharpe, daywise_mean, daywise_std, daywise_corr_df
 
+def self_corr(data):
+    _cnt = (data.shape[0] - np.isnan(data).sum(axis=0))
+    _data = np.nan_to_num(data)
+    _mean = _data.sum(axis=0) / _cnt
+    _mean2 = (_data ** 2).sum(axis=0) / _cnt
+    _meanNgb = ((_data[1:, :, :])*(_data[: -1, :, :])).sum(axis=0) / (_cnt - 1)
+    _var = _mean2 - _mean ** 2
+    _inner = _meanNgb - _mean ** 2
+    _self_corr = _inner / _var
+    return _self_corr
 
 class excel_ws(openpyxl.worksheet.worksheet.Worksheet):
     def load_df(self, df):
@@ -114,7 +124,15 @@ class excel_ws(openpyxl.worksheet.worksheet.Worksheet):
         if end is None:
             end = self.ncols
         self.cond_format((1, start), (self.nrows, end), cond_format)
-    
+
+    def cond_format_cols_list(self, cols, cond_format, start_row=None, end_row=None):
+        if start_row is None:
+            start_row = 1
+        if end_row is None:
+            end_row = self.nrows
+        for i in cols:
+            self.cond_format((start_row, i), (end_row, i), cond_format)
+        
 def beautify_excel_new(tmp_df,
                        sheet_name, 
                        writer,
@@ -269,6 +287,9 @@ class xydata:
     def daywise_corr(self):
         self.dcor_sharpe, self.dcor_mean, self.dcor_std, self.dcor_corr = \
             daywise_corr(self.data, self.d, self.idx, self.idy)
+        
+        _self_corr = pd.DataFrame(self_corr(self.dcor_corr), index=self.idy, columns=self.idx)
+        self.dcor_selfcorr = _self_corr
 
     # @property
     # def null_rate(self):
@@ -425,7 +446,7 @@ class corr_pcluster(dict):
 
     def to_excel(self, path, append_info=None):
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
-            for i in ["cor", "dcor_sharpe", "dcor_mean", "dcor_std"]:
+            for i in ["cor", "dcor_sharpe", "dcor_mean", "dcor_std", "dcor_selfcorr"]:
             #for i in ["cor"]:                
                 tmp_df = self.lift_concat(i)
                 if i == "cor":
@@ -467,71 +488,12 @@ class corr_pcluster(dict):
 class corr_pcluster_test(corr_pcluster):
     _period = kline_period[8:]
 
+
 if __name__ == "__test__":
-    # TXB_cluster[300]. data.idy.shape
-    # self = TXB_cluster
     TXM = corr_pcluster("rb", corr_talib_m_whole, y_symbol="^O{0,1}M{0,1}R[MT]")
     TXM.to_excel("./output/CORR_TXM.xlsx", append_info={"func_info": func_info})
 
-    TXM[300]. data
-    TXM.lift_concat("cor")
-    sb = TXM.lift_dict("cor")    
-    self = TXM
-    i = "cor"
-
-    TXV_test = corr_pcluster_test("rb", corr_talib_m_whole, y_symbol="^O{0,1}M{0,1}R[MT]")
-    print(TXV_test[300]. _join_sql())
     
-    test_obj = xydata(TXV_test[300]. data)
-    test_obj.cross_corr()
-    test_obj.daywise_corr()
-    
-    
-    TXV_test = corr_pcluster_test("rb", corr_talib_basic, y_symbol="^O{0,1}M{0,1}R[MT]")
-    TXV_test[300]. idy
-    
-    TXV_cluster = corr_pcluster("rb", corr_talib_basic, y_symbol="^O{0,1}M{0,1}R[MT]")
-    TXV_cluster.to_excel("./output/CORR_TXV.xlsx", append_info={"func_info": func_info})
-
-    TXM_cluster = corr_pcluster("rb", corr_talib_m, y_symbol="^O{0,1}M{0,1}R[MT]")
-    TXM_cluster.to_excel("./output/CORR_TXM.xlsx", append_info={"func_info": func_info})
-    
-    gg = read_sql("select * from rb.TXM_300 limit 100")
-    gg.iloc[0]
-    #TXV_cluster.to_excel = MethodType(to_excel, TXV_cluster)
-    #from types import MethodType
-    #from talib.abstract import * 
-    #STOCHF(TXV_cluster[1]. data)["fastd"]. isnull().mean()
-    #(STOCHF(TXV_cluster[1]. data)["fastk"]. isnull()).mean()
-    #STOCHF(TXV_cluster[1]. data).iloc[1105:1205]
-    #STOCHF(TXV_cluster[1]. data)[STOCHF(TXV_cluster[1]. data)4["fastk"]. isnull()]. head(200)
-    #TXV_cluster[1]. data[~STOCHF(TXV_cluster[1]. data)["fastd"]. isnull()]. shape    
-    
-
-
-
-
-        TXM = table_talib_period_whole(code="rb",
-                                       close_idx="MID",
-                                       period=30, 
-                                       surfix="TXM",
-                                       input_table="kline_whole",
-                                       output_table=f"TXM_{30}_whole"
-                                       )
-        df = TXM.get_join_data()
-        df.shape
-        df.iloc[0]
-    
-corr_talib_m_whole("rb", 300)
-
-read_sql("select count(1) from rb.TXM_300_whole")
-
-
-class asdf(pd.DataFrame):
-    pass
-
-sb = asdf([[1, 2], [3, 4]])
-sb
-
-
+    TXV = corr_pcluster("rb", corr_talib_v_whole, y_symbol="^O{0,1}M{0,1}R[MT]")
+    TXV.to_excel("./output/CORR_TXV.xlsx", append_info={"func_info": func_info})
 

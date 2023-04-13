@@ -27,8 +27,8 @@ def load_data(code, d1, d2):
         tkp_dict[i] = table_kline_period(code, i)
         tkp_dict[i].insert_data()
 
-    print("STEP3: Insert TXB(talib index basic)")
-    for i in kline_period[1:]:
+    print("STEP3: Insert TXV(talib index basic)")
+    for i in kline_period:
         print(f"create table: {code}.TXV_{i}")        
         TXV = table_talib_normal(code=code,
                                  close_idx="VWAP",
@@ -85,8 +85,8 @@ if __name__ == "__main__":
     
     # client.execute("drop table rb.kline_0")
     # client.execute("drop table rb.kline_tick")
-    # client.execute("drop table rb.TXB_0")            
-    # client.execute("drop table rb.TXB_tick")        
+    # client.execute("drop table rb.TXV_0")            
+    # client.execute("drop table rb.TXV_tick")        
     # df.iloc[0]
     #(df["close"] - df["high"] >= 0).mean()
     #(df["close"] - df["low"] < 0).mean()

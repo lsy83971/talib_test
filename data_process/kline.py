@@ -1,5 +1,4 @@
-
-from local_sql import table_ch, has_table, has_date, read_sql, client
+from data_process.local_sql import table_ch, has_table, has_date, read_sql, client
 import pandas as pd
 import numpy as np
 

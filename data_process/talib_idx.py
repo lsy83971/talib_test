@@ -1,12 +1,12 @@
-from local_sql import table_ch, has_table, has_date, read_sql, client, typeinfo
-from kline import table_pipeline, kline_period
+from data_process.local_sql import table_ch, has_table, has_date, read_sql, client, typeinfo
+from data_process.kline import table_pipeline, kline_period
 import pandas as pd
 import numpy as np
 import math
 from common.append_df import cc1, cc2
 import talib
 from talib.abstract import *
-from talib_info import func_info, single_func, multi_func
+from data_process.talib_info import func_info, single_func, multi_func
 from bin_tools import bins
 
 def fna(self):
