@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-  
 import os
 import re
+import sys
+sys.path.append("/home/lishiyu/talib_test/bin_tools/")
 from common import *
 from datetime import datetime
 import xlsxwriter

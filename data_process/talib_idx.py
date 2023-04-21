@@ -165,7 +165,5 @@ if __name__ == "__test__":
 
     gg = df1.merge(df, on=["date", "time"], how="left")
     gg[["TXM_BBANDS_middleband_y", "TXM_BBANDS_middleband_x", "date", "time"]]. sort_values(["date", "time"])
-
-
     TXM.get_join_data()    
 

@@ -42,7 +42,16 @@ def show3(df, i, lag=10):
            show_exch_tab(tmp_df)]
           )
 
-def show_excel(df, i, lag, path, tab="tab"):
+def show2(df, i, lag=10):
+    tmp_df = get_lag_df(df, i, lag)
+    return pd.concat([show_pv(tmp_df),
+           split_tab(tmp_df), 
+           show_exch_tab(tmp_df)]
+          )
+
+
+
+def show_excel(df, i, lag, path, tab="tab", mode='a'):
     tmp_df = get_lag_df(df, i, lag)
     df1 = show_pv(tmp_df)
     df2 = show_exch_tab(tmp_df)
@@ -83,7 +92,7 @@ def show_excel(df, i, lag, path, tab="tab"):
         
     df3.fillna("", inplace=True)
     
-    with pd.ExcelWriter(path, engine='openpyxl') as writer:
+    with pd.ExcelWriter(path, engine='openpyxl', mode=mode) as writer:
         df3.to_excel(writer, tab)
         ws = writer.book.get_sheet_by_name(tab)
         ws.__class__ = excel_ws

@@ -49,6 +49,9 @@ def cross_corr(dfx, dfy):
     corr_xy = corr_crosssum_N / ((corr_ysqr_N * corr_xsqr_N)**(1 / 2))
     return corr_xy
 
+def cross_corr_rank(dfx, dfy):
+    return cross_corr(dfx.rank(), dfy.rank())
+
 def daywise_corr(data, d, xidx, yidx):
     ls_d = list()
     ls_data = list()

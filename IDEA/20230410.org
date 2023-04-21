@@ -3,3 +3,5 @@
 ** once 0/0 was met, this null may turn the whole latter series to null.
 ** can use cumsum or cython
 * 3.QUANT:mid price is better, because it only depend on this moment, but VWAP is not.
+
+

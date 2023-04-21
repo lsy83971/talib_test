@@ -27,7 +27,8 @@ for i, j in [
         ("reverse_map", "(x)-> mapFromArrays(reverse(mapKeys(x)),reverse(mapValues(x)));"), 
         ("clip_map", "(x,b1,b2)-> mapFilter((k, v) -> ((k>=b1) and (k<=b2)),x);"), 
         ("clipMapLeft", "(x,b1)-> mapFilter((k, v) -> (k>=b1),x);"), 
-        ("clipMapRight", "(x,b2)-> mapFilter((k, v) -> (k<=b2),x);"), 
+        ("clipMapRight", "(x,b2)-> mapFilter((k, v) -> (k<=b2),x);"),
+        ("mapFilValueNozero", "(x)-> mapFilter((k, v) -> (v!=0),x);"),         
         ("mapFilValuePos", "(x)-> mapFilter((k, v) -> (v>0),x);"), 
         ("mapFilValueNeg", "(x)-> mapFilter((k, v) -> (v<0),x);"), 
         ("mapValueNeg", "(x)-> mapApply((k, v) -> (k, -v),x);")]:
@@ -90,9 +91,11 @@ class table_ch:
         self.get_columns()        
         colnames = self.col_type["name"]. tolist()
         if col.split(" ")[0] in colnames:
-            return 0
+            verb = "MODIFY"
+        else:
+            verb = "add"
         _sql = f"""
-        alter table {self.name} add column {col}
+        alter table {self.name} {verb} column {col}
         MATERIALIZED
         {expr}
         """
@@ -321,16 +324,19 @@ class exch_detail(table_ch):
         
         self.mater("D_ask_add Map(Int64,Int64)", "mapFilValuePos(D_ask_change)")
         self.mater("D_ask_cancel Map(Int64,Int64)", "mapValueNeg(mapFilValueNeg(D_ask_change))")
-        self.mater("D_ask_exch_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,D_ask_last))")
-        self.mater("D_ask_exch_old Map(Int64,Int64)", "mapSubtract(D_exch,D_ask_exch_new)")
+        self.mater("D_ask_exch Map(Int64,Int64)", "clipMapLeft(D_exch,AP1_last)")
+        self.mater("D_ask_old Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,mapFilValuePos(mapSubtract(D_exch,D_ask_last))))")
+        self.mater("D_ask_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_ask_exch,D_ask_old))")
 
         self.mater("D_bid_add Map(Int64,Int64)", "mapFilValuePos(D_bid_change)")
         self.mater("D_bid_cancel Map(Int64,Int64)", "mapValueNeg(mapFilValueNeg(D_bid_change))")
-        self.mater("D_bid_exch_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,D_bid_last))")
-        self.mater("D_bid_exch_old Map(Int64,Int64)", "mapSubtract(D_exch,D_bid_exch_new)")
-
-        self.mater("D_exch_moment Map(Int64,Int64)", "mapSubtract(D_ask_exch_new,D_bid_exch_old)")
-
+        self.mater("D_bid_exch Map(Int64,Int64)", "clipMapRight(D_exch,BP1_last)")        
+        self.mater("D_bid_old Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_exch,mapFilValuePos(mapSubtract(D_exch,D_bid_last))))")
+        self.mater("D_bid_new Map(Int64,Int64)", "mapFilValuePos(mapSubtract(D_bid_exch,D_bid_old))")
+        
+        self.mater("D_mid_exch Map(Int64,Int64)", "clip_map(D_exch,BP1_last+1,AP1_last-1)")
+        ### TODO D_ask_add above/below AP1
+        
     def insert_dates(self, d1, d2):
         if not self.has:
             need_create = True
@@ -362,7 +368,7 @@ if __name__ == "__main__":
     d1 = "20221105"
     d2 = "20230404"
     tick_table = exch_detail("rb")
-    self = tick_table
+    self = exch_detail("rb")    
     tick_table.insert_dates(d1, d2)
 
     tick_table = exch_detail("ru")
